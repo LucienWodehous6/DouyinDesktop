@@ -17,6 +17,28 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPixmap
 
 
+def _extract_image_urls(data: dict) -> list:
+    """自动从各种 API 返回中提取图片 URL 列表"""
+    for path in ["images", "data.image_urls", "data.images", "data.photos", "result.photos", "output.images"]:
+        images = data
+        for key in path.split("."):
+            images = images.get(key) if isinstance(images, dict) else None
+            if images is None:
+                break
+        if isinstance(images, list) and len(images) > 0:
+            urls = []
+            for item in images:
+                if isinstance(item, dict):
+                    url = item.get("url") or item.get("image_url") or ""
+                    if url:
+                        urls.append(url)
+                elif isinstance(item, str) and item.startswith("http"):
+                    urls.append(item)
+            if urls:
+                return urls
+    return []
+
+
 class SceneWidget(QGroupBox):
     """单个分镜 UI 组件"""
     image_generated = pyqtSignal(int)  # scene_index
@@ -116,6 +138,15 @@ class VideoCreationPanel(QWidget):
         ref_row.addWidget(self.ref_upload_btn)
         ref_row.addStretch()
         layout.addLayout(ref_row)
+
+        # ═════ 视频方向 ═════
+        orient_row = QHBoxLayout()
+        orient_row.addWidget(QLabel("视频方向:"))
+        self.orientation_combo = QComboBox()
+        self.orientation_combo.addItems(["竖版 9:16", "横版 16:9"])
+        orient_row.addWidget(self.orientation_combo)
+        orient_row.addStretch()
+        layout.addLayout(orient_row)
 
         # ═════ 进度 + 全部生成 ═════
         action_row = QHBoxLayout()
@@ -369,8 +400,8 @@ class VideoCreationPanel(QWidget):
                 return 0
 
         worker = SplitWorker(self._settings, content, self._reference_image, system_prompt)
-        worker.result_signal.connect(self._on_split_done)
-        worker.error_signal.connect(self._on_split_error)
+        worker.result_signal.connect(self._on_split_done, Qt.ConnectionType.QueuedConnection)
+        worker.error_signal.connect(self._on_split_error, Qt.ConnectionType.QueuedConnection)
         self._workers.append(worker)
         worker.start()
 
@@ -378,22 +409,37 @@ class VideoCreationPanel(QWidget):
         self.split_btn.setEnabled(True)
         self.split_btn.setText("🔀 AI 拆分分镜")
         try:
-            # 提取 JSON
+            print(f"[视频创作] 拆分返回 ({len(text)} 字符): {text[:300]}...")
             import re
             match = re.search(r"\[.*\]", text, re.DOTALL)
             if match:
-                scenes = json.loads(match.group())
+                json_str = match.group()
+                print(f"[视频创作] 提取JSON ({len(json_str)} 字符): {json_str[:200]}...")
+                scenes = json.loads(json_str)
             else:
                 scenes = json.loads(text)
 
+            if not isinstance(scenes, list):
+                raise ValueError(f"AI 返回的不是数组，类型: {type(scenes).__name__}")
+
             # 过滤掉参考图分镜
             self._scenes = [s for s in scenes if "参考图" not in s.get("title", "")]
+            print(f"[视频创作] 解析到 {len(self._scenes)} 个分镜")
 
             # 重建 UI
-            self._build_scene_ui()
+            try:
+                self._build_scene_ui()
+            except Exception as ue:
+                print(f"[视频创作] _build_scene_ui 失败: {ue}")
+                import traceback
+                traceback.print_exc()
+                QMessageBox.critical(self, "UI 构建失败", str(ue))
+                return
             self.gen_all_btn.setEnabled(True)
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             QMessageBox.critical(self, "拆分失败", f"解析AI返回失败: {e}\n\n原始返回:\n{text[:500]}")
 
     def _on_split_error(self, msg: str):
@@ -438,46 +484,84 @@ class VideoCreationPanel(QWidget):
             result_signal = pyqtSignal(int, str)  # scene_index, b64
             error_signal = pyqtSignal(int, str)
 
-            def __init__(self, settings, prompt, ref_path, scene_index, scene_title):
+            def __init__(self, settings, prompt, ref_path, scene_index, scene_title, orientation):
                 super().__init__()
                 self.settings = settings
                 self.prompt = prompt
                 self.ref_path = ref_path
                 self.scene_index = scene_index
                 self.scene_title = scene_title
+                self.orientation = orientation  # "竖版 9:16" or "横版 16:9"
 
             def run(self):
                 try:
+                    import urllib.request
+                    import urllib.error
                     from openai import OpenAI
                     api_key = self.settings.get("openai_image_api_key") or self.settings.get("openai_api_key", "")
-                    api_base = self.settings.get("openai_image_api_base") or self.settings.get("openai_api_base", "")
-                    model = self.settings.get("openai_image_model") or "dall-e-3"
+                    api_base = self.settings.get("openai_image_api_base") or self.settings.get("openai_api_base", "https://api.siliconflow.cn/v1")
+                    model = self.settings.get("openai_image_model") or "Kwai-Kolors/Kolors"
                     base_url = api_base.rstrip("/")
 
-                    client = OpenAI(api_key=api_key, base_url=base_url)
+                    # 追加方向和尺寸约束
+                    orientation = self.orientation
+                    if orientation.startswith("横"):
+                        image_size = "1792x1024"
+                        orient_text = "横版 16:9"
+                    else:
+                        image_size = "1024x1792"
+                        orient_text = "竖版 9:16"
+                    print(f"[视频创作] 方向: {orientation} → size={image_size}")
 
-                    # 如果有参考图 → 图生图（将参考图编码注入到prompt约束中）
-                    full_prompt = prompt
+                    full_prompt = f"{self.prompt}\n\n画面比例：{orient_text}，必须严格按此比例构图。"
                     if self.ref_path and os.path.exists(self.ref_path):
-                        full_prompt = (
-                            f"{prompt}\n\n"
-                            f"IMPORTANT: Maintain visual consistency with the reference style. "
-                            f"Use similar color palette, lighting, and composition throughout all scenes."
-                        )
+                        full_prompt += "\n与参考图保持一致的视觉风格，相同的色彩基调、光照和构图。"
 
-                    resp = client.images.generate(model=model, prompt=full_prompt,
-                                                   n=1, size="1024x1792", quality="standard")
-                    url = resp.data[0].url
-                    if url:
-                        import urllib.request
-                        img_data = urllib.request.urlopen(url, timeout=60).read()
+                    print(f"[视频创作] 生图: 分镜{self.scene_index+1}, url={base_url}, model={model}")
+
+                    # 确定请求 URL：如果 base_url 已包含具体路径则直接用，否则追 /images/generations
+                    from urllib.parse import urlparse
+                    parsed = urlparse(base_url)
+                    if parsed.path and parsed.path not in ("", "/", "/v1"):
+                        url = base_url
+                    else:
+                        url = f"{base_url}/images/generations"
+
+                    body = json.dumps({
+                        "model": model,
+                        "prompt": full_prompt,
+                        "n": 1,
+                        "size": image_size,
+                        "image_size": image_size,
+                        "num_inference_steps": 20,
+                        "guidance_scale": 7.5,
+                        "batch_size": 1,
+                        "negative_prompt": "blurry, low quality, distorted, deformed, ugly, bad anatomy",
+                    }).encode()
+
+                    req = urllib.request.Request(url, data=body, method="POST")
+                    req.add_header("Authorization", f"Bearer {api_key}")
+                    req.add_header("Content-Type", "application/json")
+                    print(f"[视频创作] POST {url}")
+                    resp = urllib.request.urlopen(req, timeout=180)
+                    data = json.loads(resp.read())
+                    urls = _extract_image_urls(data)
+                    img_url = urls[0] if urls else None
+                    if img_url:
+                        img_data = urllib.request.urlopen(img_url, timeout=120).read()
                         self.result_signal.emit(self.scene_index, base64.b64encode(img_data).decode())
                     else:
-                        self.error_signal.emit(self.scene_index, "未获取到图片URL")
+                        self.error_signal.emit(self.scene_index, f"未获取到图片URL，返回: {json.dumps(data)[:200]}")
+                except urllib.error.HTTPError as e:
+                    body = ""
+                    try: body = e.read().decode()[:300]
+                    except: pass
+                    self.error_signal.emit(self.scene_index, f"HTTP {e.code}: {e.reason}\n{body}")
                 except Exception as e:
                     self.error_signal.emit(self.scene_index, str(e))
 
-        worker = ImageGenWorker(self._settings, prompt, ref_path, scene_index, scene_title)
+        orientation = self.orientation_combo.currentText()
+        worker = ImageGenWorker(self._settings, prompt, ref_path, scene_index, scene_title, orientation)
         worker.result_signal.connect(self._on_scene_image_done)
         worker.error_signal.connect(self._on_scene_image_error)
         self._workers.append(worker)

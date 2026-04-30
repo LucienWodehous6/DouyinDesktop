@@ -10,9 +10,31 @@ from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QLabel, QLineEdit, QPushButton, QGroupBox, QFormLayout,
-    QCheckBox, QFileDialog, QMessageBox,
+    QCheckBox, QFileDialog, QMessageBox, QComboBox,
     QFrame, QScrollArea,
 )
+
+
+def _extract_image_urls(data: dict) -> list:
+    """自动从各种 API 返回中提取图片 URL 列表"""
+    for path in ["images", "data.image_urls", "data.images", "data.photos", "result.photos", "output.images"]:
+        images = data
+        for key in path.split("."):
+            images = images.get(key) if isinstance(images, dict) else None
+            if images is None:
+                break
+        if isinstance(images, list) and len(images) > 0:
+            urls = []
+            for item in images:
+                if isinstance(item, dict):
+                    url = item.get("url") or item.get("image_url") or ""
+                    if url:
+                        urls.append(url)
+                elif isinstance(item, str) and item.startswith("http"):
+                    urls.append(item)
+            if urls:
+                return urls
+    return []
 
 
 class CdpSettingsTab(QWidget):
@@ -100,22 +122,22 @@ class CdpSettingsTab(QWidget):
         # ═══════════════ AI 生成配置 ═══════════════
         # 文字大模型
         self._build_ai_group(layout, "📝 文字大模型设置", "openai_text",
-                             "https://api.deepseek.com/v1", "deepseek-chat")
+                             "https://api.deepseek.com/v1", "deepseek-chat", "text")
 
         # 图片大模型
         self._build_ai_group(layout, "🖼️ 图片大模型设置", "openai_image",
-                             "https://api.openai.com/v1", "dall-e-3")
+                             "https://api.siliconflow.cn/v1", "Kwai-Kolors/Kolors", "image")
 
         # 视频大模型
         self._build_ai_group(layout, "🎬 视频大模型设置", "openai_video",
-                             "https://api.openai.com/v1", "sora")
+                             "https://api.openai.com/v1", "sora", "video")
 
         layout.addStretch()
 
         scroll.setWidget(content)
         outer.addWidget(scroll)
 
-    def _build_ai_group(self, layout, title: str, prefix: str, default_base: str, default_model: str):
+    def _build_ai_group(self, layout, title: str, prefix: str, default_base: str, default_model: str, model_type: str = "text"):
         """构建一个 AI 模型配置组"""
         group = QGroupBox(title)
         form = QFormLayout(group)
@@ -124,6 +146,8 @@ class CdpSettingsTab(QWidget):
         base_key = f"{prefix}_api_base"
         key_key = f"{prefix}_api_key"
         model_key = f"{prefix}_model"
+        fmt_key = f"{prefix}_format"
+        path_key = f"{prefix}_json_path"
 
         base_input = QLineEdit(self.settings.get(base_key, default_base))
         base_input.setPlaceholderText(default_base)
@@ -153,7 +177,7 @@ class CdpSettingsTab(QWidget):
         test_status.setStyleSheet("color: #8b949e; font-size: 12px;")
 
         test_btn.clicked.connect(functools.partial(
-            self._test_ai_api, base_input, key_input, model_input, test_btn, test_status))
+            self._test_ai_api, base_input, key_input, model_input, test_btn, test_status, model_type, prefix))
         test_row.addWidget(test_btn)
         test_row.addWidget(test_status)
         test_row.addStretch()
@@ -165,7 +189,11 @@ class CdpSettingsTab(QWidget):
         self.settings[key] = input_widget.text().strip()
         self._save()
 
-    def _test_ai_api(self, base_input, key_input, model_input, test_btn, test_status):
+    def _on_ai_combo_change(self, combo, key: str):
+        self.settings[key] = "openai" if combo.currentIndex() == 0 else "custom"
+        self._save()
+
+    def _test_ai_api(self, base_input, key_input, model_input, test_btn, test_status, model_type="text", prefix=""):
         base = base_input.text().strip()
         key = key_input.text().strip()
         model = model_input.text().strip()
@@ -189,15 +217,57 @@ class CdpSettingsTab(QWidget):
         class TestWorker(QThread):
             result_signal = pyqtSignal(bool, str)
 
-            def __init__(self, base_url, api_key, model_name):
+            def __init__(self, base_url, api_key, model_name, model_type, settings, prefix):
                 super().__init__()
                 self.base_url = base_url.rstrip("/")
                 self.api_key = api_key
                 self.model_name = model_name
+                self.model_type = model_type
+                self.settings = settings
+                self.prefix = prefix
 
             def run(self):
                 try:
-                    url = f"{self.base_url}/models"
+                    if self.model_type == "image":
+                        # 图片模型：原生 HTTP POST 适配各种 API 路径
+                        from urllib.parse import urlparse
+                        parsed = urlparse(self.base_url)
+                        if parsed.path and parsed.path not in ("", "/", "/v1"):
+                            url = self.base_url
+                        else:
+                            url = f"{self.base_url}/images/generations"
+
+                        print(f"[测试] 图片模型测试: {self.model_name}")
+                        body = json.dumps({
+                            "model": self.model_name,
+                            "prompt": "a simple red circle on white background",
+                            "n": 1, "size": "512x512", "image_size": "512x512",
+                            "num_inference_steps": 10, "guidance_scale": 7.5, "batch_size": 1,
+                        }).encode()
+                        req = urllib.request.Request(url, data=body, method="POST")
+                        req.add_header("Authorization", f"Bearer {self.api_key}")
+                        req.add_header("Content-Type", "application/json")
+                        print(f"[测试] POST {url}")
+                        print(f"[测试] Body keys: {list(json.loads(body).keys())}")
+                        resp = urllib.request.urlopen(req, timeout=30)
+                        print(f"[测试] 响应状态: {resp.status}")
+                        raw = resp.read()
+                        print(f"[测试] 响应长度: {len(raw)} bytes")
+                        print(f"[测试] 响应预览: {raw[:300]}")
+                        data = json.loads(raw)
+                        urls = _extract_image_urls(data)
+                        img_url = urls[0] if urls else ""
+                        if img_url:
+                            msg = f"图片生成成功！\n模型: {self.model_name}\n图片URL: {img_url[:80]}..."
+                            print(f"[测试] ✅ {msg}")
+                            self.result_signal.emit(True, msg)
+                            return
+                        else:
+                            self.result_signal.emit(False, f"未获取到图片URL，返回: {json.dumps(data)[:200]}")
+                            return
+                    else:
+                        # 文字/视频模型：GET /models
+                        url = f"{self.base_url}/models"
                     print(f"[测试] 请求 URL: {url}")
                     print(f"[测试] Authorization: Bearer {self.api_key[:8]}...")
                     req = urllib.request.Request(url, method="GET")
@@ -229,11 +299,13 @@ class CdpSettingsTab(QWidget):
                     print(f"[测试] ❌ {msg}")
                     self.result_signal.emit(False, msg)
                 except Exception as e:
-                    msg = f"连接失败: {str(e)[:200]}"
+                    import traceback
+                    traceback.print_exc()
+                    msg = f"连接失败: {type(e).__name__}: {str(e)[:200]}"
                     print(f"[测试] ❌ {msg}")
                     self.result_signal.emit(False, msg)
 
-        worker = TestWorker(base, key, model)
+        worker = TestWorker(base, key, model, model_type, self.settings, prefix)
         self._test_workers.append(worker)  # 保持引用防止 GC 回收
         worker.result_signal.connect(
             lambda success, msg: self._on_test_result(success, msg, test_btn, test_status))
