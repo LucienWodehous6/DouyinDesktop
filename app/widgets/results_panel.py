@@ -1,4 +1,4 @@
-"""结果面板 v3 — 主从视图 + JSON 详情"""
+"""结果面板 v4 — 清晰数据展示"""
 
 import json
 import os
@@ -7,15 +7,16 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QLabel, QPushButton,
-    QFileDialog, QFrame,
+    QFileDialog, QFrame, QComboBox, QGridLayout,
 )
 from PyQt6.QtGui import QFont
 
 
 class ResultsPanel(QWidget):
-    def __init__(self):
+    def __init__(self, task_store=None):
         super().__init__()
         self._data = None
+        self._task_store = task_store
         self._init_ui()
 
     def _init_ui(self):
@@ -23,48 +24,63 @@ class ResultsPanel(QWidget):
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(12)
 
-        # 标题行
+        # ── 标题行 ──
         title_row = QHBoxLayout()
-        title = QLabel("📊 采集结果列表")
+        title = QLabel("📊 采集结果")
         title.setObjectName("pageTitle")
         title_row.addWidget(title)
+
+        self.summary_label = QLabel("")
+        self.summary_label.setObjectName("statLabel")
+        title_row.addWidget(self.summary_label)
+
         title_row.addStretch()
 
-        export_btn = QPushButton("⬇ 导出 JSON")
+        if self._task_store:
+            self.task_combo = QComboBox()
+            self.task_combo.setMinimumWidth(280)
+            self.task_combo.setPlaceholderText("选择历史任务...")
+            self.task_combo.currentIndexChanged.connect(self._on_task_selected)
+            title_row.addWidget(self.task_combo)
+
+            refresh_btn = QPushButton("🔄")
+            refresh_btn.setObjectName("smallBtn")
+            refresh_btn.clicked.connect(self._refresh_tasks)
+            title_row.addWidget(refresh_btn)
+
+        export_btn = QPushButton("导出 JSON")
         export_btn.setObjectName("smallBtn")
         export_btn.clicked.connect(self._on_export)
         title_row.addWidget(export_btn)
 
         layout.addLayout(title_row)
 
-        divider = QFrame()
-        divider.setObjectName("sectionDivider")
-        divider.setFrameShape(QFrame.Shape.HLine)
-        layout.addWidget(divider)
-
-        # 分割面板
+        # ── 分割面板 ──
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # 左侧树
+        # 左侧树（3列）
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["内容", "详情"])
-        self.tree.setColumnWidth(0, 420)
+        self.tree.setHeaderLabels(["标题 / 用户", "互动数据", "时间"])
+        self.tree.setColumnWidth(0, 380)
+        self.tree.setColumnWidth(1, 200)
+        self.tree.setColumnWidth(2, 130)
         self.tree.setAnimated(True)
-        self.tree.setIndentation(22)
+        self.tree.setIndentation(16)
+        self.tree.setAlternatingRowColors(True)
         self.tree.itemClicked.connect(self._on_item_clicked)
         splitter.addWidget(self.tree)
 
-        # 右侧 JSON
+        # 右侧详情
         self.detail_view = QPlainTextEdit()
         self.detail_view.setObjectName("jsonView")
         self.detail_view.setReadOnly(True)
-        font = QFont("JetBrains Mono", 11)
+        font = QFont("SF Mono", 11)
         font.setStyleHint(QFont.StyleHint.Monospace)
         self.detail_view.setFont(font)
-        self.detail_view.setPlaceholderText("点击左侧条目查看详情")
+        self.detail_view.setPlaceholderText("点击条目查看详情")
         splitter.addWidget(self.detail_view)
 
-        splitter.setSizes([460, 540])
+        splitter.setSizes([520, 480])
         layout.addWidget(splitter, 1)
 
     # ── 加载 / 导出 ──
@@ -92,51 +108,112 @@ class ResultsPanel(QWidget):
         if not self._data:
             return
 
-        root = self.tree.invisibleRootItem()
+        videos = self._data.get("videos", [])
         kw = self._data.get("match_keywords")
-        kw_str = " | ".join(kw) if kw else "无"
+        total_comments = sum(len(v.get("comments", [])) for v in videos)
+        total_matched = sum(len(v.get("matched_users") or []) for v in videos)
 
-        info = QTreeWidgetItem(root, [
-            f"📁 搜索: {self._data.get('search_term', '?')}",
-            f"匹配: {kw_str}  ·  {self._data.get('total_videos', 0)} 视频",
-        ])
-        info.setData(0, Qt.ItemDataRole.UserRole, {"type": "meta"})
+        # 概要标签
+        kw_str = " | ".join(kw) if kw else "—"
+        match_info = f"已匹配 {total_matched} 个用户" if kw else f"{total_comments} 条评论"
+        self.summary_label.setText(
+            f"搜索: {self._data.get('search_term','?')}  |  "
+            f"视频: {len(videos)}  |  {match_info}"
+        )
 
-        for v in self._data.get("videos", []):
-            s = f"👍{v.get('likes','0')}  💬{v.get('comments_count','0')}  ⭐{v.get('collects','0')}  ↗{v.get('shares','0')}"
+        root = self.tree.invisibleRootItem()
+
+        for v in videos:
+            idx = v.get("index", "?")
+            title = v.get("title", "无标题")
+            vid = v.get("video_id", "")
+            vid_str = f"  ID:{vid}" if vid else ""
+
+            stats = (
+                f"👍{v.get('likes','0')}  "
+                f"💬{v.get('comments_count','0')}  "
+                f"⭐{v.get('collects','0')}  "
+                f"↗{v.get('shares','0')}"
+            )
+            time_str = v.get("matched_users", [{}])[0].get("comment_time", "") if v.get("matched_users") else ""
+
             video_item = QTreeWidgetItem(root, [
-                f"🎬 {v.get('title','无')[:50]}",
-                s,
+                f"#{idx}  {title[:55]}{vid_str}",
+                stats,
+                time_str,
             ])
             video_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "video", "data": v})
-            video_item.setExpanded(True)
+            video_item.setExpanded(len(v.get("matched_users") or []) <= 5)
 
             # 匹配用户
             for u in (v.get("matched_users") or []):
                 user_item = QTreeWidgetItem(video_item, [
-                    f"  👤 {u.get('username','?')}  ·  {u.get('shortId','?')}",
-                    f"{u.get('comment_content','')[:30]}  ·  {u.get('comment_time','')}",
+                    f"@{u.get('username','?')}  ·  {u.get('shortId','?')}",
+                    f"「{u.get('comment_content','')[:25]}」",
+                    u.get("comment_time", ""),
                 ])
                 user_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "user", "data": u})
 
             # 评论（无关键字模式）
-            for idx, c in enumerate(v.get("comments", [])):
+            for idx_c, c in enumerate(v.get("comments", [])):
                 cmt = QTreeWidgetItem(video_item, [
-                    f"  💬 {c.get('username','?')}",
-                    f"{c.get('content','')[:35]}",
+                    f"{c.get('username','?')}",
+                    c.get("content", "")[:35],
+                    c.get("time", ""),
                 ])
                 cmt.setData(0, Qt.ItemDataRole.UserRole, {"type": "comment", "data": c})
-                if idx > 60 and len(v.get("comments", [])) > 100:
+                if idx_c > 80 and len(v.get("comments", [])) > 120:
                     video_item.setExpanded(False)
                     break
 
         self.tree.expandAll()
 
+    # ── 任务历史 ──
+
+    def _refresh_tasks(self):
+        if not self._task_store:
+            return
+        self.task_combo.blockSignals(True)
+        self.task_combo.clear()
+        self.task_combo.addItem("— 选择任务 —", "")
+        for t in self._task_store.list_tasks():
+            status = "✅" if t.get("status") == "completed" else "🔄"
+            label = f"{status} {t['created_at'][:16]} | {t.get('search_term','')[:20]}"
+            if t.get("notes"):
+                label += f" — {t['notes'][:15]}"
+            self.task_combo.addItem(label, t["task_id"])
+        self.task_combo.blockSignals(False)
+
+    def _on_task_selected(self, index: int):
+        if index <= 0 or not self._task_store:
+            return
+        task_id = self.task_combo.currentData()
+        if task_id:
+            data = self._task_store.load_result(task_id)
+            if data:
+                self._data = data
+                self._build_tree()
+
     def _on_item_clicked(self, item: QTreeWidgetItem, col: int):
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        if data and data.get("type") != "meta":
+        if not data or data.get("type") == "meta":
+            return
+
+        obj = data["data"]
+        if data["type"] == "video":
             self.detail_view.setPlainText(
-                json.dumps(data["data"], ensure_ascii=False, indent=2)
+                f"标题: {obj.get('title','')}\n"
+                f"ID: {obj.get('video_id','')}\n"
+                f"点赞: {obj.get('likes','0')}  |  "
+                f"评论: {obj.get('comments_count','0')}  |  "
+                f"收藏: {obj.get('collects','0')}  |  "
+                f"分享: {obj.get('shares','0')}\n"
+                f"\n--- 完整数据 ---\n"
+                f"{json.dumps(obj, ensure_ascii=False, indent=2)}"
+            )
+        else:
+            self.detail_view.setPlainText(
+                json.dumps(obj, ensure_ascii=False, indent=2)
             )
 
     def _on_export(self):

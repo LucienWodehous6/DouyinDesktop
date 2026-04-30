@@ -17,14 +17,15 @@ from PyQt6.QtWidgets import (
 from app.widgets.search_panel import SearchPanel
 from app.widgets.progress_panel import ProgressPanel
 from app.widgets.results_panel import ResultsPanel
-from app.widgets.environment_panel import EnvironmentPanel
-from app.widgets.settings_dialog import SettingsDialog
+from app.widgets.script_panel import ScriptPanel
+from app.widgets.settings_page import SettingsPage
 from app.worker import DouyinWorker
+from app.task_store import TaskStore
 from app.styles import MODERN_THEME
 from app.theme import NEON_RED, NEON_GREEN, NEON_BLUE
 
 APP_DIR = Path(__file__).resolve().parent.parent
-SETTINGS_FILE = os.path.expanduser("~/.dy/desktop_settings.json")
+SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".dy", "desktop_settings.json")
 
 
 class SidebarButton(QPushButton):
@@ -44,6 +45,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.worker: DouyinWorker | None = None
         self.settings = self._load_settings()
+        storage = self.settings.get("storage_path", "")
+        self.task_store = TaskStore(storage if storage else None)
         self._init_ui()
         self._init_menu()
         self._init_statusbar()
@@ -83,8 +86,8 @@ class MainWindow(QMainWindow):
         # 导航按钮组
         self.nav_group = []
         nav_items = [
-            ("⚙",  "环境检查"),
             ("🔍", "搜索采集"),
+            ("🎬", "剧本生成"),
             ("📟", "运行日志"),
             ("📊", "结果查看"),
         ]
@@ -95,6 +98,11 @@ class MainWindow(QMainWindow):
             sidebar_layout.addWidget(btn)
 
         sidebar_layout.addStretch()
+
+        # 设置按钮（导航到设置页 index=4）
+        settings_btn = SidebarButton("⚙", "设置")
+        settings_btn.clicked.connect(lambda: self._switch_page(4))
+        sidebar_layout.addWidget(settings_btn)
 
         # 底部版本
         version = QLabel("v2.0 · PyQt6")
@@ -114,26 +122,30 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.stack.setObjectName("mainStack")
 
-        self.env_panel = EnvironmentPanel(self.settings)
-        self.env_panel.ready_changed.connect(self._on_env_ready)
-        self.env_panel.cookie_saved.connect(self._on_cookie_saved)
-        self.stack.addWidget(self.env_panel)
-
         self.search_panel = SearchPanel()
         self.search_panel.start_requested.connect(self._on_start)
         self.search_panel.stop_requested.connect(self._on_stop)
         self.stack.addWidget(self.search_panel)
 
+        self.script_panel = ScriptPanel()
+        self.stack.addWidget(self.script_panel)
+
         self.progress_panel = ProgressPanel()
         self.stack.addWidget(self.progress_panel)
 
-        self.results_panel = ResultsPanel()
+        self.results_panel = ResultsPanel(self.task_store)
         self.stack.addWidget(self.results_panel)
+
+        self.settings_page = SettingsPage(self.settings)
+        self.settings_page.ready_changed.connect(self._on_env_ready)
+        self.settings_page.cookie_saved.connect(self._on_cookie_saved)
+        self.settings_page.cdp_tab.settings_changed.connect(self._on_settings_changed)
+        self.stack.addWidget(self.settings_page)
 
         root.addWidget(self.stack, 1)
 
         # 默认选中搜索页
-        self._switch_page(1)
+        self._switch_page(0)
 
     def _switch_page(self, index: int):
         self.stack.setCurrentIndex(index)
@@ -155,6 +167,14 @@ class MainWindow(QMainWindow):
         self.settings["cookie_file"] = path
         self._save_settings()
 
+    def _on_settings_changed(self):
+        """设置变更后重建存储"""
+        self._save_settings()
+        storage = self.settings.get("storage_path", "")
+        self.task_store = TaskStore(storage if storage else None)
+        # 更新结果面板的 store 引用
+        self.results_panel._task_store = self.task_store
+
     def _init_menu(self):
         menubar = self.menuBar()
         menubar.setObjectName("appMenuBar")
@@ -175,9 +195,9 @@ class MainWindow(QMainWindow):
 
         # 设置
         settings_menu = menubar.addMenu("设置")
-        act_cdp = QAction("CDP / Cookie 配置...", self)
-        act_cdp.triggered.connect(self._open_settings)
-        settings_menu.addAction(act_cdp)
+        act_settings = QAction("打开设置页面...", self)
+        act_settings.triggered.connect(lambda: self._switch_page(4))
+        settings_menu.addAction(act_settings)
 
         # 关于
         about_menu = menubar.addMenu("关于")
@@ -205,7 +225,7 @@ class MainWindow(QMainWindow):
     def _load_settings(self) -> dict:
         defaults = {
             "cdp_url": "http://127.0.0.1:9222",
-            "cookie_file": os.path.expanduser("~/.dy/cookies/default.json"),
+            "cookie_file": os.path.join(os.path.expanduser("~"), ".dy", "cookies", "default.json"),
             "use_cdp": True,
         }
         try:
@@ -247,7 +267,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "打开结果文件", str(APP_DIR), "JSON (*.json)")
         if path:
             self.results_panel.load_file(path)
-            self._switch_page(3)
+            self._switch_page(3)    # 跳转到结果查看
 
     def _export_results(self):
         if self.results_panel.is_empty():
@@ -262,7 +282,7 @@ class MainWindow(QMainWindow):
     # ══════════════════════════════════════════
 
     def _on_start(self, params: dict):
-        if not self.env_panel.is_ready():
+        if not self.settings_page.is_ready():
             QMessageBox.warning(self, "环境未就绪", "请先在「环境检查」页面确认 Chrome 和 CDP 已连接。")
             return
 
@@ -270,17 +290,28 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "提示", "采集任务正在进行中。")
             return
 
-        self._switch_page(2)
+        self._switch_page(2)    # 跳转到运行日志
         self.progress_panel.clear()
         self.status_label.setText("● 运行中")
         self.status_label.setStyleSheet(f"color: {NEON_GREEN};")
         self.cdp_label.setText(f"CDP: {self.settings.get('cdp_url','--')}")
         self.search_panel.set_running(True)
 
+        # 创建任务记录
+        task_id = self.task_store.create_task(
+            search_term=params["search_text"],
+            notes=params.get("notes", ""),
+            match_keywords=params.get("match_keywords"),
+        )
+        self.progress_panel.log(f"📋 任务 ID: {task_id}", "INFO")
+
         self.worker = DouyinWorker(
+            task_id=task_id,
+            task_store=self.task_store,
             search_text=params["search_text"],
             match_keywords=params.get("match_keywords"),
             video_count=params.get("video_count", 5),
+            max_scrolls=params.get("max_scrolls", 50),
             sort_by=params.get("sort_by", "最新发布"),
             time_filter=params.get("time_filter"),
             cdp_url=self.settings.get("cdp_url", "http://127.0.0.1:9222"),
@@ -307,6 +338,7 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet(f"color: {NEON_GREEN};")
         self.progress_panel.log(f"✅ 采集完成！结果已保存: {os.path.basename(result_file)}", "SUCCESS")
         self.results_panel.load_file(result_file)
+        self.results_panel._refresh_tasks()
 
     def _on_error(self, message: str):
         self._reset_ui()

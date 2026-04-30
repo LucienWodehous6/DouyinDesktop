@@ -3,6 +3,7 @@
 import os
 import sys
 import subprocess
+import tempfile
 import urllib.request
 import urllib.error
 import json
@@ -34,7 +35,7 @@ _CHROME_PATHS = {
     ],
 }
 
-COOKIE_DIR = os.path.expanduser("~/.dy/cookies")
+COOKIE_DIR = os.path.join(os.path.expanduser("~"), ".dy", "cookies")
 DEFAULT_COOKIE_FILE = os.path.join(COOKIE_DIR, "default.json")
 
 
@@ -67,12 +68,7 @@ def check_cdp(cdp_url: str, timeout: float = 2.0) -> bool:
 
 def start_chrome_cdp(chrome_path: str, port: int = 9222, user_data_dir: str = "") -> bool:
     if not user_data_dir:
-        if sys.platform == "darwin":
-            user_data_dir = "/tmp/chrome-cdp-profile"
-        elif sys.platform == "win32":
-            user_data_dir = os.path.join(os.environ.get("TEMP", "C:\\tmp"), "chrome-cdp-profile")
-        else:
-            user_data_dir = "/tmp/chrome-cdp-profile"
+        user_data_dir = os.path.join(tempfile.gettempdir(), "chrome-cdp-profile")
 
     args = [
         chrome_path,
@@ -180,6 +176,11 @@ class EnvironmentPanel(QWidget):
         self._init_ui()
         QTimer.singleShot(500, self.check_all)
 
+        # 每 5 秒自动检测 CDP 状态
+        self._cdp_timer = QTimer(self)
+        self._cdp_timer.timeout.connect(self._check_cdp_auto)
+        self._cdp_timer.start(5000)
+
     def _init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -254,6 +255,27 @@ class EnvironmentPanel(QWidget):
         layout.addStretch()
 
     # ═══════════════ 检查 ═══════════════
+
+    def _check_cdp_auto(self):
+        """轻量自动检测：只刷新 CDP 状态和按钮"""
+        cdp_url = self.cdp_input.text().strip()
+        cdp_ok = check_cdp(cdp_url, timeout=1.0)
+        prev_ready = self._ready
+        self._ready = cdp_ok
+
+        if cdp_ok:
+            self.cdp_row.dot.setStyleSheet("color: #2ed573; font-size: 16px;")
+            self.cdp_row.status_label.setText("连接成功")
+            self.cdp_row.status_label.setStyleSheet("color: #2ed573;")
+        else:
+            self.cdp_row.dot.setStyleSheet("color: #f85149; font-size: 16px;")
+            self.cdp_row.status_label.setText("未连接")
+            self.cdp_row.status_label.setStyleSheet("color: #f85149;")
+
+        self.start_cdp_btn.setVisible(self.chrome_path is not None and not cdp_ok)
+
+        if prev_ready != self._ready:
+            self.ready_changed.emit(self._ready)
 
     def check_all(self):
         cdp_url = self.cdp_input.text().strip()

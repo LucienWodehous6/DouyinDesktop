@@ -5,6 +5,7 @@
 
 import json
 import os
+import sys
 import time
 import random
 import asyncio
@@ -437,12 +438,33 @@ def process_one_video(page, video_index, match_keywords=None):
     random_delay()
     video_title = get_video_title(page)
 
+    # 提取视频 ID
+    random_delay()
+    video_id = get_video_id(page)
+
     # 提取视频互动数据（点赞/评论/收藏/分享）
     random_delay()
     video_stats = get_video_stats(page)
 
-    # 检查是否"暂无评论"
+    # 确保评论面板已打开（如果当前在详情页，切回评论）
+    page.evaluate("""() => {
+        const spans = document.querySelectorAll('span');
+        for (const span of spans) {
+            const t = span.textContent.trim();
+            if (t === '评论') {
+                const r = span.getBoundingClientRect();
+                const color = getComputedStyle(span).color;
+                // 选中标签为纯白，未选中带透明度
+                if (color !== 'rgb(249, 249, 249)' && r.width > 20) {
+                    span.click();
+                }
+                break;
+            }
+        }
+    }""")
     random_delay()
+
+    # 检查是否"暂无评论"
     has_no_comments = page.evaluate("""() => {
         return document.body.textContent.includes('暂无评论');
     }""")
@@ -452,7 +474,8 @@ def process_one_video(page, video_index, match_keywords=None):
 
     # 滚动评论区加载全部评论
     random_delay()
-    scroll_comment_area(page)
+    max_scrolls = getattr(sys.modules[__name__], '_MAX_SCROLLS', 50)
+    scroll_comment_area(page, max_scrolls=max_scrolls)
 
     # 提取评论数据
     random_delay()
@@ -471,6 +494,7 @@ def process_one_video(page, video_index, match_keywords=None):
 
     return {
         "index": video_index + 1,
+        "video_id": video_id,
         "title": video_title,
         "likes": video_stats.get('likes', '0'),
         "comments_count": video_stats.get('comments', '0'),
@@ -526,14 +550,14 @@ def dismiss_dialog_if_present(page, timeout=5000):
         pass  # 没有弹窗，正常跳过
 
 
-def scroll_comment_area(page, max_scrolls=10):
+def scroll_comment_area(page, max_scrolls=50):
     """
     在评论区域滚动，直到出现"暂时没有更多评论"或到达最大滚动次数
-    每次滚动间隔 0.5 秒，模拟人工操作
+    每次滚动间隔 1 秒，模拟人工操作
     
     评论列表容器: div[data-e2e="comment-list"]
     """
-    print("[*] 开始滚动评论区加载所有评论...")
+    print(f"[*] 开始滚动评论区（最多 {max_scrolls} 次）...")
     
     # 等待评论区加载
     try:
@@ -559,7 +583,7 @@ def scroll_comment_area(page, max_scrolls=10):
         page.evaluate("""() => {
             const list = document.querySelector('[data-e2e="comment-list"]');
             if (list) {
-                list.scrollBy(0, 1500);
+                list.scrollBy(0, 3000);
             }
         }""")
         
@@ -567,7 +591,7 @@ def scroll_comment_area(page, max_scrolls=10):
         if scroll_count % 10 == 0:
             print(f"  已滚动 {scroll_count} 次...")
         
-        time.sleep(0.5)
+        time.sleep(1)
     
     print(f"[✓] 评论滚动完成，共 {scroll_count} 次")
     time.sleep(1)
@@ -632,9 +656,13 @@ def extract_comments(page):
                 let commentText = '';
                 const allSpans = item.querySelectorAll('span');
                 for (const span of allSpans) {
+                    // 只考虑叶子 span（无子 span）
+                    if (span.querySelector('span')) continue;
                     const text = span.textContent.trim();
                     if (!text || text.length < 2) continue;
                     if (isInAvatar(span)) continue;
+                    // 排除用户链接内和回复区的文本
+                    if (span.closest('a[href*="/user/"]')) continue;
                     // 排除操作文字
                     if (/^(回复|分享|举报|删除|\\.{3}|作者|作者赞过)$/.test(text)) continue;
                     // 排除纯数字（点赞、楼层等）
@@ -647,7 +675,7 @@ def extract_comments(page):
                     if (username && text === username) continue;
                     
                     // 取文本最长的（评论内容通常最长）
-                    if (text.length > commentText.length) {
+                    if (text.length > commentText.length && text.length <= 200) {
                         commentText = text;
                     }
                 }
@@ -709,7 +737,9 @@ def extract_comments(page):
                 }
             }
             
-            results.push(comment);
+            if (comment && comment.content) {
+                results.push(comment);
+            }
         }
         
         return results;
@@ -719,6 +749,109 @@ def extract_comments(page):
     total = len(comments_data) + sum(len(c.get('replies', [])) for c in comments_data)
     print(f"[✓] 提取了 {len(comments_data)} 条评论（含 {total - len(comments_data)} 条回复）")
     return comments_data
+
+
+def get_video_id(page):
+    """从页面 URL 提取当前视频 ID（纯 URL 正则，零 class 依赖）"""
+    try:
+        vid = page.evaluate("""() => {
+            const url = location.href;
+            // /video/ 页面
+            let m = url.match(/\\/video\\/(\\d{15,20})/);
+            if (m) return m[1];
+            // 搜索预览 modal_id
+            m = url.match(/modal_id=(\\d{15,20})/);
+            if (m) return m[1];
+            return '';
+        }""")
+        if vid:
+            print(f"  视频ID: {vid}")
+        return vid or ''
+    except Exception:
+        return ''
+
+
+def get_video_ai_notes(page, timeout=10000):
+    """
+    点击「详情」标签，提取 AI 笔记内容和视频描述。
+    完成后切回「评论」标签。
+    
+    返回 dict: {"description": "...", "ai_notes": "..."}
+    """
+    print("[*] 提取 AI 笔记...")
+
+    try:
+        result = page.evaluate("""() => {
+            // 1. 找到并点击「详情」标签（纯文本定位，找可见的 span）
+            const allSpans = document.querySelectorAll('span');
+            let detailTab = null;
+            for (const span of allSpans) {
+                if (span.textContent.trim() === '详情') {
+                    const r = span.getBoundingClientRect();
+                    if (r.width > 20 && r.height > 10) {
+                        detailTab = span;
+                        break;
+                    }
+                }
+            }
+            if (!detailTab) return JSON.stringify({ description: '', ai_notes: '' });
+
+            detailTab.click();
+
+            // 2. 等待内容加载（轮询最多 5 秒）
+            const start = Date.now();
+            let descText = '';
+            let aiText = '';
+
+            while (Date.now() - start < 5000) {
+                // 找描述：可见的 span 包含 # 标签（视频描述必有 hashtag）
+                const spans = document.querySelectorAll('span');
+                for (const span of spans) {
+                    const t = span.textContent.trim();
+                    const r = span.getBoundingClientRect();
+                    if (r.width > 200 && r.height > 10 &&
+                        t.length > 20 && t.includes('#')) {
+                        descText = t;
+                        break;
+                    }
+                }
+                if (descText) break;
+            }
+
+            // 3. 找 AI 笔记：文本以「AI 笔记」开头且可见的 div
+            const allDivs = document.querySelectorAll('div');
+            for (const div of allDivs) {
+                const t = div.textContent.trim();
+                const r = div.getBoundingClientRect();
+                if (t.startsWith('AI 笔记') && r.width > 200 && r.height > 50) {
+                    aiText = t;
+                    break;
+                }
+            }
+
+            // 4. 点击「评论」切回去
+            const allSpans2 = document.querySelectorAll('span');
+            for (const span of allSpans2) {
+                if (span.textContent.trim() === '评论') {
+                    const r = span.getBoundingClientRect();
+                    if (r.width > 20 && r.height > 10) {
+                        span.click();
+                        break;
+                    }
+                }
+            }
+
+            return JSON.stringify({ description: descText, ai_notes: aiText });
+        }""")
+
+        data = json.loads(result)
+        if data.get("description"):
+            print(f"  描述: {data['description'][:60]}...")
+        if data.get("ai_notes"):
+            print(f"  AI笔记: {data['ai_notes'][:60]}...")
+        return data
+    except Exception:
+        return {"description": "", "ai_notes": ""}
 
 
 def get_video_title(page, timeout=5000):
@@ -775,28 +908,40 @@ def get_video_stats(page, timeout=5000):
 
             // 点赞
             const digg = scope.querySelector('[data-e2e="video-player-digg"]');
-            if (digg) result.likes = digg.textContent.trim();
+            if (digg) {
+                let raw = digg.textContent.trim();
+                result.likes = (raw === '点赞' || raw === '') ? '0' : raw;
+            }
 
             // 收藏
             const collect = scope.querySelector('[data-e2e="video-player-collect"]');
-            if (collect) result.collects = collect.textContent.trim();
+            if (collect) {
+                let raw = collect.textContent.trim();
+                result.collects = (raw === '收藏' || raw === '') ? '0' : raw;
+            }
 
             // 分享
             const share = scope.querySelector('[data-e2e="video-player-share"]');
-            if (share) result.shares = share.textContent.trim();
+            if (share) {
+                let raw = share.textContent.trim();
+                result.shares = (raw === '转发' || raw === '') ? '0' : raw;
+            }
 
             // 评论数：优先从评论区标题获取 "全部评论(N)"
             const commentList = scope.querySelector('[data-e2e="comment-list"]');
             if (commentList) {
                 const text = commentList.textContent;
-                const m = text.match(/全部评论\\((\\d+(?:\\.\\d+)?万?)\\)/);
+                const m = text.match(/全部评论\((\d+(?:\.\d+)?万?)\)/);
                 if (m) result.comments = m[1];
             }
-            // 备选：feed-comment-icon（在右侧互动栏，可能不在 feed-active-video 内）
+            // 备选：feed-comment-icon
             if (result.comments === '0') {
                 const icon = scope.querySelector('[data-e2e="feed-comment-icon"]')
                     || document.querySelector('[data-e2e="feed-comment-icon"]');
-                if (icon) result.comments = icon.textContent.trim();
+                if (icon) {
+                    let raw = icon.textContent.trim();
+                    result.comments = (raw === '抢首评' || raw === '评论' || raw === '') ? '0' : raw;
+                }
             }
 
             return result;
@@ -1055,6 +1200,9 @@ def search_via_cdp(search_text=SEARCH_TEXT, cookie_file=None, match_keywords=Non
             context = browser.new_context()
             page = context.new_page()
 
+        # 设置窗口大小（确保坐标定位一致）
+        page.set_viewport_size({"width": 1280, "height": 720})
+
         # 注入 Cookie（免登录）
         if cookie_file:
             cookies = load_cookies_from_file(cookie_file)
@@ -1159,6 +1307,9 @@ def search_via_launch(search_text=SEARCH_TEXT, cookie_file=None, match_keywords=
             viewport={"width": 1280, "height": 720},
         )
         page = context.new_page()
+
+        # 设置窗口大小（确保坐标定位一致）
+        page.set_viewport_size({"width": 1280, "height": 720})
 
         # 注入 Cookie（免登录）
         if cookie_file:

@@ -50,13 +50,17 @@ class SearchPanel(QWidget):
         layout.addWidget(section1)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("请输入抖音搜索词，例如：核桃手串")
+        self.search_input.setPlaceholderText("输入搜索关键词，如'核桃手串'")
         self.search_input.setMinimumHeight(44)
         layout.addWidget(self.search_input)
 
-        # ═══════════════════════════════════
-        #  精准匹配
-        # ═══════════════════════════════════
+        # 备注
+        self.notes_input = QLineEdit()
+        self.notes_input.setPlaceholderText("任务备注（可选，方便后续查找）")
+        self.notes_input.setMinimumHeight(36)
+        layout.addWidget(self.notes_input)
+
+        # ── 评论关键字开关 ──
         section2 = QLabel("【精准匹配】")
         section2.setObjectName("sectionLabel")
         layout.addWidget(section2)
@@ -123,6 +127,13 @@ class SearchPanel(QWidget):
         self.count_spin.setValue(5)
         self.count_spin.setSuffix("  个视频")
         filter_grid.addWidget(self.count_spin, 2, 1)
+
+        filter_grid.addWidget(QLabel("滚动次数"), 3, 0)
+        self.scroll_spin = QSpinBox()
+        self.scroll_spin.setRange(1, 200)
+        self.scroll_spin.setValue(50)
+        self.scroll_spin.setSuffix("  次")
+        filter_grid.addWidget(self.scroll_spin, 3, 1)
 
         layout.addLayout(filter_grid)
 
@@ -195,8 +206,10 @@ class SearchPanel(QWidget):
 
         params = {
             "search_text": text,
+            "notes": self.notes_input.text().strip(),
             "match_keywords": match_keywords,
             "video_count": self.count_spin.value(),
+            "max_scrolls": self.scroll_spin.value(),
             "sort_by": "最新发布" if self.sort_check.isChecked() else None,
             "time_filter": TIME_MAP[self.time_combo.currentText()],
         }
@@ -207,6 +220,7 @@ class SearchPanel(QWidget):
         self.start_btn.setVisible(not running)
         self.stop_btn.setVisible(running)
         self.search_input.setEnabled(not running)
+        self.notes_input.setEnabled(not running)
         self.kw_toggle.setEnabled(not running)
         self.kw_input.setEnabled(not running)
         self.add_btn.setEnabled(not running)
@@ -214,4 +228,5 @@ class SearchPanel(QWidget):
             tag.setEnabled(not running)
         self.time_combo.setEnabled(not running)
         self.count_spin.setEnabled(not running)
+        self.scroll_spin.setEnabled(not running)
         self.sort_check.setEnabled(not running)

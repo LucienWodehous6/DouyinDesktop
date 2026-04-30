@@ -18,8 +18,9 @@ for py_file in (PROJECT_DIR / "app").rglob("*.py"):
 hiddenimports = [
     "app", "app.main_window", "app.worker", "app.styles", "app.theme",
     "app.widgets", "app.widgets.search_panel", "app.widgets.progress_panel",
-    "app.widgets.results_panel", "app.widgets.environment_panel",
-    "app.widgets.settings_dialog",
+    "app.widgets.results_panel",    "app.widgets.environment_panel",
+    "app.widgets.settings_dialog", "app.widgets.settings_page",
+    "app.widgets.script_panel",
     "douyin_browser_automation",
     "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets", "PyQt6.sip",
     "playwright", "playwright.sync_api",

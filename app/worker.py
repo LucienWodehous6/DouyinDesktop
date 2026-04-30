@@ -19,9 +19,12 @@ class DouyinWorker(QThread):
 
     def __init__(
         self,
-        search_text: str,
+        task_id: str = "",
+        task_store=None,
+        search_text: str = "",
         match_keywords: list[str] | None = None,
         video_count: int = 5,
+        max_scrolls: int = 50,
         sort_by: str = "最新发布",
         time_filter: str | None = None,
         cdp_url: str = "http://127.0.0.1:9222",
@@ -29,9 +32,12 @@ class DouyinWorker(QThread):
         use_cdp: bool = True,
     ):
         super().__init__()
+        self.task_id = task_id
+        self.task_store = task_store
         self.search_text = search_text
         self.match_keywords = match_keywords
         self.video_count = video_count
+        self.max_scrolls = max_scrolls
         self.sort_by = sort_by
         self.time_filter = time_filter
         self.cdp_url = cdp_url
@@ -116,13 +122,26 @@ class DouyinWorker(QThread):
             original_save = dba.save_results
 
             def patched_save(all_videos, search_text, match_keywords, output_dir=None):
-                result_path = original_save(all_videos, search_text, match_keywords, output_dir)
+                # 桌面模式：只保存到 TaskStore，不额外写文件
+                if self.task_store and self.task_id:
+                    result_data = {
+                        "search_term": search_text,
+                        "match_keywords": match_keywords,
+                        "timestamp": time.strftime("%Y%m%d_%H%M%S"),
+                        "task_id": self.task_id,
+                        "total_videos": len(all_videos),
+                        "videos": all_videos,
+                    }
+                    result_path = self.task_store.save_result(self.task_id, result_data)
+                else:
+                    result_path = original_save(all_videos, search_text, match_keywords, output_dir)
                 self.finished_signal.emit(result_path)
                 return result_path
 
             dba.save_results = patched_save
 
             # 执行采集
+            dba._MAX_SCROLLS = self.max_scrolls
             if dba.USE_CDP:
                 dba.search_via_cdp(
                     search_text=self.search_text,
