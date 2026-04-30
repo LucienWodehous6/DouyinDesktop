@@ -1,27 +1,27 @@
-# 核心采集脚本 — 不公开，不打包
-douyin_browser_automation.py
-
-# PyInstaller
+# Build
 build/
 dist/
-*.pyc
-__pycache__/
 *.spec.bak
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
 
 # IDE
 .idea/
 .vscode/
 *.swp
-*.swo
+
+# Data (results and cookies only)
+douyin_results_*.json
+cookies.json
+
+# Playwright browsers (~1GB, downloaded at runtime)
+playwright_browsers/
 
 # OS
 .DS_Store
 Thumbs.db
-
-# 输出文件
-output/
-*.json.bak
-
-# 虚拟环境
-venv/
-.venv/
