@@ -1,0 +1,27 @@
+# 核心采集脚本 — 不公开，不打包
+douyin_browser_automation.py
+
+# PyInstaller
+build/
+dist/
+*.pyc
+__pycache__/
+*.spec.bak
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 输出文件
+output/
+*.json.bak
+
+# 虚拟环境
+venv/
+.venv/
