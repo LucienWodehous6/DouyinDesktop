@@ -86,3 +86,29 @@ class TaskStore:
     def get_result_path(self, task_id: str) -> str:
         """获取结果文件路径"""
         return str(self.base_dir / f"{task_id}.json")
+
+    def save_script(self, script_text: str, prompt: str, notes: str, model: str = "") -> str:
+        """保存生成的剧本"""
+        script_id = datetime.now().strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:6]
+        script_dir = self.base_dir.parent / "scripts"
+        script_dir.mkdir(parents=True, exist_ok=True)
+        filepath = script_dir / f"{script_id}.json"
+        data = {
+            "script_id": script_id,
+            "created_at": datetime.now().isoformat(),
+            "prompt": prompt,
+            "notes": notes,
+            "model": model,
+            "content": script_text,
+        }
+        filepath.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        self._index[script_id] = {
+            "task_id": script_id,
+            "created_at": datetime.now().isoformat(),
+            "search_term": prompt[:50] if prompt else "(剧本生成)",
+            "notes": notes,
+            "result_file": str(filepath),
+            "status": "script",
+        }
+        self._save_index()
+        return str(filepath)

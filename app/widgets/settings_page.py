@@ -1,12 +1,17 @@
 """设置页面 — 环境检查 + CDP/Cookie 配置"""
 
 import os
+import json
+import urllib.request
+import urllib.error
+import functools
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QLabel, QLineEdit, QPushButton, QGroupBox, QFormLayout,
     QCheckBox, QFileDialog, QMessageBox,
+    QFrame, QScrollArea,
 )
 
 
@@ -17,10 +22,19 @@ class CdpSettingsTab(QWidget):
     def __init__(self, settings: dict):
         super().__init__()
         self.settings = settings
+        self._test_workers = []  # 保持引用防止 GC 回收
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(16)
 
@@ -83,7 +97,160 @@ class CdpSettingsTab(QWidget):
         mode_layout.addWidget(self.cdp_mode)
         layout.addWidget(mode_group)
 
+        # ═══════════════ AI 生成配置 ═══════════════
+        # 文字大模型
+        self._build_ai_group(layout, "📝 文字大模型设置", "openai_text",
+                             "https://api.deepseek.com/v1", "deepseek-chat")
+
+        # 图片大模型
+        self._build_ai_group(layout, "🖼️ 图片大模型设置", "openai_image",
+                             "https://api.openai.com/v1", "dall-e-3")
+
+        # 视频大模型
+        self._build_ai_group(layout, "🎬 视频大模型设置", "openai_video",
+                             "https://api.openai.com/v1", "sora")
+
         layout.addStretch()
+
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+
+    def _build_ai_group(self, layout, title: str, prefix: str, default_base: str, default_model: str):
+        """构建一个 AI 模型配置组"""
+        group = QGroupBox(title)
+        form = QFormLayout(group)
+        form.setSpacing(12)
+
+        base_key = f"{prefix}_api_base"
+        key_key = f"{prefix}_api_key"
+        model_key = f"{prefix}_model"
+
+        base_input = QLineEdit(self.settings.get(base_key, default_base))
+        base_input.setPlaceholderText(default_base)
+        base_input.setMinimumHeight(36)
+        base_input.textChanged.connect(lambda t, b=base_input, k=base_key: self._on_ai_field_change(b, k))
+        form.addRow("API 地址:", base_input)
+
+        key_input = QLineEdit(self.settings.get(key_key, ""))
+        key_input.setPlaceholderText("sk-xxx...")
+        key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        key_input.setMinimumHeight(36)
+        key_input.textChanged.connect(lambda t, b=key_input, k=key_key: self._on_ai_field_change(b, k))
+        form.addRow("API 密钥:", key_input)
+
+        model_input = QLineEdit(self.settings.get(model_key, default_model))
+        model_input.setPlaceholderText(default_model)
+        model_input.setMinimumHeight(36)
+        model_input.textChanged.connect(lambda t, b=model_input, k=model_key: self._on_ai_field_change(b, k))
+        form.addRow("模型名称:", model_input)
+
+        # 测试按钮
+        test_row = QHBoxLayout()
+        test_row.addStretch()
+        test_btn = QPushButton("🔌 测试连接")
+        test_btn.setObjectName("smallBtn")
+        test_status = QLabel("")
+        test_status.setStyleSheet("color: #8b949e; font-size: 12px;")
+
+        test_btn.clicked.connect(functools.partial(
+            self._test_ai_api, base_input, key_input, model_input, test_btn, test_status))
+        test_row.addWidget(test_btn)
+        test_row.addWidget(test_status)
+        test_row.addStretch()
+        form.addRow(test_row)
+
+        layout.addWidget(group)
+
+    def _on_ai_field_change(self, input_widget, key: str):
+        self.settings[key] = input_widget.text().strip()
+        self._save()
+
+    def _test_ai_api(self, base_input, key_input, model_input, test_btn, test_status):
+        base = base_input.text().strip()
+        key = key_input.text().strip()
+        model = model_input.text().strip()
+
+        print(f"[测试] API 地址: {base}")
+        print(f"[测试] API 密钥: {key[:8]}...{key[-4:] if len(key) > 12 else ''}")
+        print(f"[测试] 模型名称: {model}")
+
+        if not base:
+            QMessageBox.warning(self, "提示", "请先填写 API 地址。")
+            return
+        if not key:
+            QMessageBox.warning(self, "提示", "请先填写 API 密钥。")
+            return
+
+        test_btn.setEnabled(False)
+        test_btn.setText("测试中...")
+        test_status.setText("⏳ 正在连接...")
+        test_status.setStyleSheet("color: #ffa502; font-size: 12px;")
+
+        class TestWorker(QThread):
+            result_signal = pyqtSignal(bool, str)
+
+            def __init__(self, base_url, api_key, model_name):
+                super().__init__()
+                self.base_url = base_url.rstrip("/")
+                self.api_key = api_key
+                self.model_name = model_name
+
+            def run(self):
+                try:
+                    url = f"{self.base_url}/models"
+                    print(f"[测试] 请求 URL: {url}")
+                    print(f"[测试] Authorization: Bearer {self.api_key[:8]}...")
+                    req = urllib.request.Request(url, method="GET")
+                    req.add_header("Authorization", f"Bearer {self.api_key}")
+                    req.add_header("Content-Type", "application/json")
+                    resp = urllib.request.urlopen(req, timeout=10)
+                    print(f"[测试] 响应状态: {resp.status}")
+                    raw = resp.read()
+                    print(f"[测试] 响应长度: {len(raw)} bytes")
+                    data = json.loads(raw)
+                    model_ids = [m["id"] for m in data.get("data", [])]
+                    print(f"[测试] 模型列表 ({len(model_ids)} 个): {model_ids[:10]}...")
+                    if model_ids:
+                        found = self.model_name in model_ids
+                        info = f"模型 '{self.model_name}' {'✓ 可用' if found else '✗ 未找到'}"
+                        msg = f"连接成功！{len(model_ids)} 个模型。{info}"
+                        print(f"[测试] ✅ {msg}")
+                        self.result_signal.emit(True, msg)
+                    else:
+                        print(f"[测试] ✅ 连接成功！但未返回模型列表。")
+                        self.result_signal.emit(True, "连接成功！但未返回模型列表。")
+                except urllib.error.HTTPError as e:
+                    body = ""
+                    try:
+                        body = e.read().decode()[:200]
+                    except Exception:
+                        pass
+                    msg = f"HTTP {e.code}: {e.reason}\n{body}"
+                    print(f"[测试] ❌ {msg}")
+                    self.result_signal.emit(False, msg)
+                except Exception as e:
+                    msg = f"连接失败: {str(e)[:200]}"
+                    print(f"[测试] ❌ {msg}")
+                    self.result_signal.emit(False, msg)
+
+        worker = TestWorker(base, key, model)
+        self._test_workers.append(worker)  # 保持引用防止 GC 回收
+        worker.result_signal.connect(
+            lambda success, msg: self._on_test_result(success, msg, test_btn, test_status))
+        worker.start()
+
+    def _on_test_result(self, success: bool, message: str, test_btn, test_status):
+        print(f"[测试] 回调 success={success} message={message[:100]}")
+        test_btn.setEnabled(True)
+        test_btn.setText("🔌 测试连接")
+        if success:
+            test_status.setText("✅ " + message.split("\n")[0])
+            test_status.setStyleSheet("color: #2ed573; font-size: 12px;")
+            QMessageBox.information(self, "测试结果", message)
+        else:
+            test_status.setText("❌ 失败")
+            test_status.setStyleSheet("color: #ff4757; font-size: 12px;")
+            QMessageBox.warning(self, "测试失败", message)
 
     def _browse_cookie(self):
         path, _ = QFileDialog.getOpenFileName(self, "选择 Cookie", "", "JSON (*.json)")
@@ -134,18 +301,20 @@ class SettingsPage(QWidget):
         self.env_tab = EnvironmentPanel(self.settings)
         self.env_tab.ready_changed.connect(self.ready_changed.emit)
         self.env_tab.cookie_saved.connect(self.cookie_saved.emit)
+        self.env_tab.settings_changed.connect(self._on_settings_changed)
         tabs.addTab(self.env_tab, "环境检查")
 
         # CDP/Cookie tab
         self.cdp_tab = CdpSettingsTab(self.settings)
-        self.cdp_tab.settings_changed.connect(self._on_settings_changed)
         tabs.addTab(self.cdp_tab, "连接配置")
 
         layout.addWidget(tabs)
 
     def _on_settings_changed(self):
-        """CDP 地址变更时通知环境检查刷新"""
+        """CDP 地址或设置变更时通知环境检查刷新，并转发给 MainWindow 持久化"""
         self.env_tab.check_all()
+        # 转发给 MainWindow（通过 cdp_tab 的信号）
+        self.cdp_tab.settings_changed.emit()
 
     def is_ready(self) -> bool:
         return self.env_tab.is_ready()

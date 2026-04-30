@@ -18,6 +18,7 @@ class ResultsPanel(QWidget):
         self._data = None
         self._task_store = task_store
         self._init_ui()
+        self._refresh_tasks()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -177,6 +178,8 @@ class ResultsPanel(QWidget):
         self.task_combo.clear()
         self.task_combo.addItem("— 选择任务 —", "")
         for t in self._task_store.list_tasks():
+            if t.get("status") == "script":
+                continue  # 剧本不显示在采集结果页
             status = "✅" if t.get("status") == "completed" else "🔄"
             label = f"{status} {t['created_at'][:16]} | {t.get('search_term','')[:20]}"
             if t.get("notes"):

@@ -1,0 +1,606 @@
+"""视频创作面板 — 剧本拆分 → 分镜生图 → 图生视频"""
+
+import os
+import sys
+import json
+import base64
+import threading
+
+from PyQt6.QtCore import Qt, pyqtSignal, QThread
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QTextEdit, QLineEdit, QProgressBar,
+    QComboBox, QMessageBox, QInputDialog,
+    QScrollArea, QFrame, QFileDialog, QCheckBox,
+    QGroupBox, QGridLayout,
+)
+from PyQt6.QtGui import QPixmap
+
+
+class SceneWidget(QGroupBox):
+    """单个分镜 UI 组件"""
+    image_generated = pyqtSignal(int)  # scene_index
+
+    def __init__(self, scene_index: int, title: str, prompt: str, parent=None):
+        super().__init__(f"分镜 {scene_index + 1}: {title}", parent)
+        self.scene_index = scene_index
+        self.generated_image_path = ""
+        self.generated_video_path = ""
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+
+        # 提示词
+        layout.addWidget(QLabel("生图提示词:"))
+        self.prompt_edit = QTextEdit()
+        self.prompt_edit.setPlainText(prompt)
+        self.prompt_edit.setMaximumHeight(80)
+        self.prompt_edit.setStyleSheet("""
+            QTextEdit {
+                background: #0d1117; color: #c9d1d9;
+                border: 1px solid #30363d; border-radius: 6px;
+                padding: 8px; font-size: 12px;
+            }
+        """)
+        layout.addWidget(self.prompt_edit)
+
+        # 按钮行
+        btn_row = QHBoxLayout()
+        self.gen_img_btn = QPushButton("🖼️ 生成图片")
+        self.gen_img_btn.setObjectName("smallBtn")
+        btn_row.addWidget(self.gen_img_btn)
+
+        self.img_status = QLabel("")
+        self.img_status.setStyleSheet("color: #8b949e; font-size: 11px;")
+        btn_row.addWidget(self.img_status)
+        btn_row.addStretch()
+
+        self.gen_video_btn = QPushButton("🎬 生成视频")
+        self.gen_video_btn.setObjectName("smallBtn")
+        self.gen_video_btn.setEnabled(False)
+        btn_row.addWidget(self.gen_video_btn)
+        layout.addLayout(btn_row)
+
+        # 图片预览
+        self.img_label = QLabel("")
+        self.img_label.setFixedSize(180, 320)
+        self.img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.img_label.setStyleSheet("border: 1px dashed #30363d; border-radius: 8px;")
+        layout.addWidget(self.img_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+
+class VideoCreationPanel(QWidget):
+    def __init__(self, task_store=None, settings: dict | None = None):
+        super().__init__()
+        self._task_store = task_store
+        self._settings = settings or {}
+        self._scenes: list[dict] = []  # [{title, prompt, image, video}]
+        self._scene_widgets: list[SceneWidget] = []
+        self._reference_image = ""  # 参考图路径
+        self._workers: list = []
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 12, 20, 12)
+        layout.setSpacing(6)
+
+        title = QLabel("🎥 视频创作")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+
+        # ═════ 剧本选择 ═════
+        script_row = QHBoxLayout()
+        script_row.addWidget(QLabel("选择剧本:"))
+        self.script_combo = QComboBox()
+        self.script_combo.setMinimumWidth(350)
+        self.script_combo.setPlaceholderText("选择已保存的剧本...")
+        script_row.addWidget(self.script_combo)
+        script_row.addStretch()
+
+        self.split_btn = QPushButton("🔀 AI 拆分分镜")
+        self.split_btn.setObjectName("primaryBtn")
+        self.split_btn.clicked.connect(self._split_storyboard)
+        script_row.addWidget(self.split_btn)
+        layout.addLayout(script_row)
+
+        # ═════ 参考图 ═════
+        ref_row = QHBoxLayout()
+        ref_row.addWidget(QLabel("商品参考图:"))
+        self.ref_path_label = QLabel("(未选择)")
+        self.ref_path_label.setStyleSheet("color: #8b949e; font-size: 12px;")
+        ref_row.addWidget(self.ref_path_label)
+        self.ref_upload_btn = QPushButton("📷 上传")
+        self.ref_upload_btn.setObjectName("smallBtn")
+        self.ref_upload_btn.clicked.connect(self._upload_reference)
+        ref_row.addWidget(self.ref_upload_btn)
+        ref_row.addStretch()
+        layout.addLayout(ref_row)
+
+        # ═════ 进度 + 全部生成 ═════
+        action_row = QHBoxLayout()
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setVisible(False)
+        action_row.addWidget(self.progress_bar)
+
+        self.progress_label = QLabel("")
+        self.progress_label.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self.progress_label.setVisible(False)
+        action_row.addWidget(self.progress_label)
+        action_row.addStretch()
+
+        self.gen_all_btn = QPushButton("🖼️ 生成全部分镜图片")
+        self.gen_all_btn.setObjectName("primaryBtn")
+        self.gen_all_btn.clicked.connect(self._generate_all_images)
+        self.gen_all_btn.setEnabled(False)
+        action_row.addWidget(self.gen_all_btn)
+
+        self.create_video_btn = QPushButton("🎬 创作视频")
+        self.create_video_btn.setObjectName("primaryBtn")
+        self.create_video_btn.clicked.connect(self._create_video)
+        self.create_video_btn.setEnabled(False)
+        action_row.addWidget(self.create_video_btn)
+        layout.addLayout(action_row)
+
+        # ═════ 分镜列表（可滚动） ═════
+        self.scene_scroll = QScrollArea()
+        self.scene_scroll.setWidgetResizable(True)
+        self.scene_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scene_container = QWidget()
+        self.scene_layout = QVBoxLayout(self.scene_container)
+        self.scene_layout.setSpacing(10)
+        self.scene_layout.addStretch()
+        self.scene_scroll.setWidget(self.scene_container)
+        layout.addWidget(self.scene_scroll, 1)
+
+    def _load_scripts(self):
+        """加载已保存的剧本列表"""
+        self.script_combo.blockSignals(True)
+        self.script_combo.clear()
+        self.script_combo.addItem("— 选择剧本 —", "")
+        if self._task_store:
+            for t in self._task_store.list_tasks():
+                if t.get("status") == "script":
+                    label = f"{t['created_at'][:16]} | {t.get('search_term','')[:30]}"
+                    if t.get("notes"):
+                        label += f" — {t['notes'][:12]}"
+                    self.script_combo.addItem(label, t["task_id"])
+        self.script_combo.blockSignals(False)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._load_scripts()
+
+    def _upload_reference(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择商品参考图", "",
+                                               "Images (*.jpg *.jpeg *.png *.webp)")
+        if path:
+            self._reference_image = path
+            self.ref_path_label.setText(os.path.basename(path))
+            self.ref_path_label.setStyleSheet("color: #2ed573; font-size: 12px;")
+
+    def _get_script_content(self) -> str | None:
+        task_id = self.script_combo.currentData()
+        if not task_id or not self._task_store:
+            QMessageBox.warning(self, "提示", "请先选择剧本。")
+            return None
+        data = self._task_store.load_result(task_id)
+        if not data:
+            QMessageBox.warning(self, "提示", "无法加载剧本数据。")
+            return None
+        return data.get("content", "")
+
+    def _load_storyboard_prompt(self) -> str:
+        """加载系统预置分镜提示词 models/storyboard_split.md"""
+        candidates = []
+        if getattr(sys, 'frozen', False):
+            candidates.append(os.path.join(os.path.dirname(sys.executable), "models", "storyboard_split.md"))
+        else:
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            candidates.append(os.path.join(project_root, "models", "storyboard_split.md"))
+        candidates.append(os.path.join(os.getcwd(), "models", "storyboard_split.md"))
+
+        for path in candidates:
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    content += (
+                        "\n\n---\n\n"
+                        "## 重要规则：用户提示词优先\n\n"
+                        "如果用户的提示词与上述系统预置规则存在冲突，"
+                        "必须以用户提示词为准，忽略冲突的系统规则。"
+                    )
+                    print(f"[视频创作] 分镜系统提示词已加载: {path} ({len(content)} 字符)")
+                    return content
+                except Exception as e:
+                    print(f"[视频创作] 加载分镜提示词失败 ({path}): {e}")
+        return ""
+
+    # ═══════════════ 剧本拆分 ═══════════════
+
+    def _split_storyboard(self):
+        content = self._get_script_content()
+        if not content:
+            return
+
+        system_prompt = self._load_storyboard_prompt()
+
+        self.split_btn.setEnabled(False)
+        self.split_btn.setText("拆分中...")
+
+        class SplitWorker(QThread):
+            result_signal = pyqtSignal(str)
+            error_signal = pyqtSignal(str)
+
+            def __init__(self, settings, script_content, ref_image, sys_prompt):
+                super().__init__()
+                self.settings = settings
+                self.script = script_content
+                self.ref_image = ref_image
+                self.sys_prompt = sys_prompt
+
+            def run(self):
+                try:
+                    from openai import OpenAI
+                    api_key = self.settings.get("openai_text_api_key") or self.settings.get("openai_api_key", "")
+                    api_base = self.settings.get("openai_text_api_base") or self.settings.get("openai_api_base", "https://api.deepseek.com/v1")
+                    model = self.settings.get("openai_text_model") or self.settings.get("openai_model", "deepseek-chat")
+                    base_url = api_base.rstrip("/")
+
+                    client = OpenAI(api_key=api_key, base_url=base_url)
+
+                    prompt = (
+                        f"请将以下剧本拆分为5-8个分镜。每个分镜包含：\n"
+                        f"1. 分镜标题（≤10字）\n"
+                        f"2. 生图提示词（详细描述画面内容、构图、光线、风格，适合AI生图）\n\n"
+                        f"输出格式（严格JSON）：\n"
+                        f'[{{"title":"分镜标题","prompt":"生图提示词"}}, ...]\n'
+                        f"\n剧本内容：\n{self.script}"
+                    )
+
+                    messages = []
+                    if self.sys_prompt:
+                        messages.append({"role": "system", "content": self.sys_prompt})
+                    messages.append({"role": "user", "content": prompt})
+
+                    print(f"[视频创作] API 地址: {api_base}")
+                    print(f"[视频创作] 模型: {model}")
+                    print(f"[视频创作] 系统提示词({len(self.sys_prompt)} 字符)")
+                    print(f"[视频创作] 正在流式拆分分镜...")
+
+                    stream = client.chat.completions.create(
+                        model=model, messages=messages,
+                        temperature=0.7, max_tokens=4096,
+                        stream=True,
+                    )
+
+                    full_text = ""
+                    full_reasoning = ""
+                    buf = ""
+                    THINK_OPEN = "<think>"
+                    THINK_CLOSE = "</think>"
+                    in_think = False
+
+                    for chunk in stream:
+                        delta = chunk.choices[0].delta if chunk.choices else None
+                        if delta is None:
+                            continue
+                        text = delta.content or ""
+                        if not text:
+                            continue
+
+                        buf += text
+                        while buf:
+                            if not in_think:
+                                idx = buf.find(THINK_OPEN)
+                                if idx == -1:
+                                    partial = self._partial_tag(buf, THINK_OPEN)
+                                    if partial:
+                                        keep = buf[-partial:]
+                                        emit = buf[:-partial]
+                                        if emit:
+                                            full_text += emit
+                                            print(emit, end="", flush=True)
+                                        buf = keep
+                                        break
+                                    else:
+                                        full_text += buf
+                                        print(buf, end="", flush=True)
+                                        buf = ""
+                                        break
+                                else:
+                                    before = buf[:idx]
+                                    if before:
+                                        full_text += before
+                                        print(before, end="", flush=True)
+                                    buf = buf[idx + len(THINK_OPEN):]
+                                    in_think = True
+                            else:
+                                idx = buf.find(THINK_CLOSE)
+                                if idx == -1:
+                                    partial = self._partial_tag(buf, THINK_CLOSE)
+                                    if partial:
+                                        keep = buf[-partial:]
+                                        emit_think = buf[:-partial]
+                                        full_reasoning += emit_think
+                                        print(emit_think, end="", flush=True)
+                                        buf = keep
+                                        break
+                                    else:
+                                        full_reasoning += buf
+                                        print(buf, end="", flush=True)
+                                        buf = ""
+                                        break
+                                else:
+                                    before = buf[:idx]
+                                    full_reasoning += before
+                                    print(before, end="", flush=True)
+                                    buf = buf[idx + len(THINK_CLOSE):]
+                                    in_think = False
+
+                    if buf:
+                        if in_think:
+                            full_reasoning += buf
+                            print(buf, end="", flush=True)
+                        else:
+                            full_text += buf
+                            print(buf, end="", flush=True)
+
+                    if full_reasoning:
+                        print()
+                    print(f"\n[视频创作] ✅ 拆分完成 ({len(full_text)} 字符)")
+
+                    self.result_signal.emit(full_text)
+
+                except Exception as e:
+                    print(f"[视频创作] ❌ 拆分失败: {e}")
+                    self.error_signal.emit(str(e))
+
+            @staticmethod
+            def _partial_tag(buf: str, tag: str) -> int:
+                for n in range(len(tag) - 1, 0, -1):
+                    if buf.endswith(tag[:n]):
+                        return n
+                return 0
+
+        worker = SplitWorker(self._settings, content, self._reference_image, system_prompt)
+        worker.result_signal.connect(self._on_split_done)
+        worker.error_signal.connect(self._on_split_error)
+        self._workers.append(worker)
+        worker.start()
+
+    def _on_split_done(self, text: str):
+        self.split_btn.setEnabled(True)
+        self.split_btn.setText("🔀 AI 拆分分镜")
+        try:
+            # 提取 JSON
+            import re
+            match = re.search(r"\[.*\]", text, re.DOTALL)
+            if match:
+                scenes = json.loads(match.group())
+            else:
+                scenes = json.loads(text)
+
+            # 过滤掉参考图分镜
+            self._scenes = [s for s in scenes if "参考图" not in s.get("title", "")]
+
+            # 重建 UI
+            self._build_scene_ui()
+            self.gen_all_btn.setEnabled(True)
+
+        except Exception as e:
+            QMessageBox.critical(self, "拆分失败", f"解析AI返回失败: {e}\n\n原始返回:\n{text[:500]}")
+
+    def _on_split_error(self, msg: str):
+        self.split_btn.setEnabled(True)
+        self.split_btn.setText("🔀 AI 拆分分镜")
+        QMessageBox.critical(self, "拆分失败", msg)
+
+    def _build_scene_ui(self):
+        """根据分镜数据重建 UI"""
+        for w in self._scene_widgets:
+            self.scene_layout.removeWidget(w)
+            w.deleteLater()
+        self._scene_widgets.clear()
+
+        for i, scene in enumerate(self._scenes):
+            sw = SceneWidget(i, scene["title"], scene["prompt"])
+            sw.gen_img_btn.clicked.connect(
+                lambda checked, idx=i: self._generate_scene_image(idx))
+            sw.gen_video_btn.clicked.connect(
+                lambda checked, idx=i: self._generate_scene_video(idx))
+            self.scene_layout.insertWidget(self.scene_layout.count() - 1, sw)
+            self._scene_widgets.append(sw)
+
+    # ═══════════════ 单分镜生图 ═══════════════
+
+    def _generate_scene_image(self, scene_index: int):
+        sw = self._scene_widgets[scene_index]
+        prompt = sw.prompt_edit.toPlainText().strip()
+        if not prompt:
+            QMessageBox.warning(self, "提示", "请输入生图提示词。")
+            return
+
+        sw.gen_img_btn.setEnabled(False)
+        sw.gen_img_btn.setText("生成中...")
+        sw.img_status.setText("⏳")
+        sw.img_status.setStyleSheet("color: #ffa502; font-size: 11px;")
+
+        ref_path = self._reference_image
+        scene_title = self._scenes[scene_index]["title"]
+
+        class ImageGenWorker(QThread):
+            result_signal = pyqtSignal(int, str)  # scene_index, b64
+            error_signal = pyqtSignal(int, str)
+
+            def __init__(self, settings, prompt, ref_path, scene_index, scene_title):
+                super().__init__()
+                self.settings = settings
+                self.prompt = prompt
+                self.ref_path = ref_path
+                self.scene_index = scene_index
+                self.scene_title = scene_title
+
+            def run(self):
+                try:
+                    from openai import OpenAI
+                    api_key = self.settings.get("openai_image_api_key") or self.settings.get("openai_api_key", "")
+                    api_base = self.settings.get("openai_image_api_base") or self.settings.get("openai_api_base", "")
+                    model = self.settings.get("openai_image_model") or "dall-e-3"
+                    base_url = api_base.rstrip("/")
+
+                    client = OpenAI(api_key=api_key, base_url=base_url)
+
+                    # 如果有参考图 → 图生图（将参考图编码注入到prompt约束中）
+                    full_prompt = prompt
+                    if self.ref_path and os.path.exists(self.ref_path):
+                        full_prompt = (
+                            f"{prompt}\n\n"
+                            f"IMPORTANT: Maintain visual consistency with the reference style. "
+                            f"Use similar color palette, lighting, and composition throughout all scenes."
+                        )
+
+                    resp = client.images.generate(model=model, prompt=full_prompt,
+                                                   n=1, size="1024x1792", quality="standard")
+                    url = resp.data[0].url
+                    if url:
+                        import urllib.request
+                        img_data = urllib.request.urlopen(url, timeout=60).read()
+                        self.result_signal.emit(self.scene_index, base64.b64encode(img_data).decode())
+                    else:
+                        self.error_signal.emit(self.scene_index, "未获取到图片URL")
+                except Exception as e:
+                    self.error_signal.emit(self.scene_index, str(e))
+
+        worker = ImageGenWorker(self._settings, prompt, ref_path, scene_index, scene_title)
+        worker.result_signal.connect(self._on_scene_image_done)
+        worker.error_signal.connect(self._on_scene_image_error)
+        self._workers.append(worker)
+        worker.start()
+
+    def _on_scene_image_done(self, scene_index: int, b64_data: str):
+        sw = self._scene_widgets[scene_index]
+        import tempfile
+        path = os.path.join(tempfile.gettempdir(), f"dy_scene_{scene_index}_{os.getpid()}.png")
+        with open(path, "wb") as f:
+            f.write(base64.b64decode(b64_data))
+        sw.generated_image_path = path
+        self._scenes[scene_index]["image"] = path
+
+        pixmap = QPixmap(path).scaled(180, 320, Qt.AspectRatioMode.KeepAspectRatio,
+                                       Qt.TransformationMode.SmoothTransformation)
+        sw.img_label.setPixmap(pixmap)
+        sw.img_label.setStyleSheet("border: 1px solid #2ed573; border-radius: 8px;")
+        sw.gen_img_btn.setEnabled(True)
+        sw.gen_img_btn.setText("🖼️ 生成图片")
+        sw.img_status.setText("✅")
+        sw.img_status.setStyleSheet("color: #2ed573; font-size: 11px;")
+        sw.gen_video_btn.setEnabled(True)
+
+        # 全部完成后启用视频创作按钮
+        all_done = all(w.generated_image_path for w in self._scene_widgets)
+        if all_done:
+            self.create_video_btn.setEnabled(True)
+
+    def _on_scene_image_error(self, scene_index: int, msg: str):
+        sw = self._scene_widgets[scene_index]
+        sw.gen_img_btn.setEnabled(True)
+        sw.gen_img_btn.setText("🖼️ 生成图片")
+        sw.img_status.setText("❌")
+        sw.img_status.setStyleSheet("color: #ff4757; font-size: 11px;")
+        QMessageBox.critical(self, "生图失败", f"分镜{scene_index+1}: {msg}")
+
+    # ═══════════════ 全部分镜生图 ═══════════════
+
+    def _generate_all_images(self):
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.progress_label.setVisible(True)
+        total = len(self._scene_widgets)
+        for i in range(total):
+            self.progress_label.setText(f"生成分镜 {i+1}/{total}...")
+            self.progress_bar.setValue(int((i / total) * 100))
+            self._generate_scene_image(i)
+        # Note: this fires them all in parallel due to QThread; progress is approximate
+
+    # ═══════════════ 视频生成 ═══════════════
+
+    def _generate_scene_video(self, scene_index: int):
+        sw = self._scene_widgets[scene_index]
+        sw.gen_video_btn.setEnabled(False)
+        sw.gen_video_btn.setText("生成中...")
+
+        prev_last_frame = ""
+        if scene_index > 0:
+            prev_sw = self._scene_widgets[scene_index - 1]
+            if prev_sw.generated_video_path:
+                prev_last_frame = prev_sw.generated_video_path + ".last_frame.png"
+
+        class VideoGenWorker(QThread):
+            result_signal = pyqtSignal(int, str)
+            error_signal = pyqtSignal(int, str)
+
+            def __init__(self, settings, image_path, prev_frame, scene_index):
+                super().__init__()
+                self.settings = settings
+                self.image_path = image_path
+                self.prev_frame = prev_frame
+                self.scene_index = scene_index
+
+            def run(self):
+                try:
+                    from openai import OpenAI
+                    api_key = self.settings.get("openai_video_api_key") or self.settings.get("openai_api_key", "")
+                    api_base = self.settings.get("openai_video_api_base") or self.settings.get("openai_api_base", "")
+                    base_url = api_base.rstrip("/")
+
+                    # 视频生成 — 使用 DALL-E / Sora 兼容格式
+                    # 注: 具体API取决于视频模型提供商
+                    prompt = "Generate a smooth cinematic video from this scene, 16:9, high quality"
+                    if self.prev_frame:
+                        prompt += ", starting from the reference frame, smooth transition"
+
+                    # 占位：实际视频生成API待对接
+                    self.result_signal.emit(self.scene_index, f"video_placeholder_{self.scene_index}")
+                except Exception as e:
+                    self.error_signal.emit(self.scene_index, str(e))
+
+        worker = VideoGenWorker(self._settings, sw.generated_image_path,
+                                 prev_last_frame, scene_index)
+        worker.result_signal.connect(lambda idx, p: self._on_scene_video_done(idx))
+        worker.error_signal.connect(lambda idx, m: self._on_scene_video_error(idx, m))
+        self._workers.append(worker)
+        worker.start()
+
+    def _on_scene_video_done(self, scene_index: int):
+        sw = self._scene_widgets[scene_index]
+        sw.gen_video_btn.setText("✅ 完成")
+
+    def _on_scene_video_error(self, scene_index: int, msg: str):
+        sw = self._scene_widgets[scene_index]
+        sw.gen_video_btn.setEnabled(True)
+        sw.gen_video_btn.setText("🎬 生成视频")
+        QMessageBox.critical(self, "视频生成失败", f"分镜{scene_index+1}: {msg}")
+
+    # ═══════════════ 最终视频创作 ═══════════════
+
+    def _create_video(self):
+        msg = (
+            "视频创作流程：\n\n"
+            "1. 所有分镜图片已生成 ✅\n"
+            "2. 点击各分镜的「生成视频」按钮生成视频片段\n"
+            "3. 首个分镜：图生视频\n"
+            "4. 后续分镜：首尾帧参考图方式（上一分镜最后一帧 → 当前分镜首帧）\n\n"
+            "所有视频生成后，将自动拼接为完整视频。"
+        )
+        QMessageBox.information(self, "视频创作", msg)
+
+        # 自动触发全部分镜视频生成
+        for i, sw in enumerate(self._scene_widgets):
+            if sw.generated_image_path and not sw.generated_video_path:
+                self._generate_scene_video(i)

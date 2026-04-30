@@ -57,8 +57,8 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self):
         self.setWindowTitle("Douyin Scraper Pro")
-        self.setMinimumSize(1200, 760)
-        self.resize(1280, 820)
+        self.setFixedSize(1280, 820)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowMaximizeButtonHint)
 
         # 中央容器
         central = QWidget()
@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
         nav_items = [
             ("🔍", "搜索采集"),
             ("🎬", "剧本生成"),
+            ("🎥", "视频创作"),
             ("📟", "运行日志"),
             ("📊", "结果查看"),
         ]
@@ -101,7 +102,7 @@ class MainWindow(QMainWindow):
 
         # 设置按钮（导航到设置页 index=4）
         settings_btn = SidebarButton("⚙", "设置")
-        settings_btn.clicked.connect(lambda: self._switch_page(4))
+        settings_btn.clicked.connect(lambda: self._switch_page(5))
         sidebar_layout.addWidget(settings_btn)
 
         # 底部版本
@@ -127,8 +128,12 @@ class MainWindow(QMainWindow):
         self.search_panel.stop_requested.connect(self._on_stop)
         self.stack.addWidget(self.search_panel)
 
-        self.script_panel = ScriptPanel()
+        self.script_panel = ScriptPanel(self.task_store, self.settings)
         self.stack.addWidget(self.script_panel)
+
+        from app.widgets.video_creation_panel import VideoCreationPanel
+        self.video_panel = VideoCreationPanel(self.task_store, self.settings)
+        self.stack.addWidget(self.video_panel)
 
         self.progress_panel = ProgressPanel()
         self.stack.addWidget(self.progress_panel)
@@ -170,10 +175,13 @@ class MainWindow(QMainWindow):
     def _on_settings_changed(self):
         """设置变更后重建存储"""
         self._save_settings()
+        self.settings_page.env_tab.check_all()  # 刷新环境检查
         storage = self.settings.get("storage_path", "")
         self.task_store = TaskStore(storage if storage else None)
         # 更新结果面板的 store 引用
         self.results_panel._task_store = self.task_store
+        self.script_panel.set_task_store(self.task_store)
+        self.script_panel.set_settings(self.settings)
 
     def _init_menu(self):
         menubar = self.menuBar()
@@ -227,6 +235,18 @@ class MainWindow(QMainWindow):
             "cdp_url": "http://127.0.0.1:9222",
             "cookie_file": os.path.join(os.path.expanduser("~"), ".dy", "cookies", "default.json"),
             "use_cdp": True,
+            "openai_api_base": "https://api.deepseek.com/v1",
+            "openai_api_key": "",
+            "openai_model": "deepseek-chat",
+            "openai_text_api_base": "https://api.deepseek.com/v1",
+            "openai_text_api_key": "",
+            "openai_text_model": "deepseek-chat",
+            "openai_image_api_base": "https://api.openai.com/v1",
+            "openai_image_api_key": "",
+            "openai_image_model": "dall-e-3",
+            "openai_video_api_base": "https://api.openai.com/v1",
+            "openai_video_api_key": "",
+            "openai_video_model": "sora",
         }
         try:
             if os.path.exists(SETTINGS_FILE):
@@ -267,7 +287,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "打开结果文件", str(APP_DIR), "JSON (*.json)")
         if path:
             self.results_panel.load_file(path)
-            self._switch_page(3)    # 跳转到结果查看
+            self._switch_page(4)    # 跳转到结果查看
 
     def _export_results(self):
         if self.results_panel.is_empty():
@@ -290,7 +310,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "提示", "采集任务正在进行中。")
             return
 
-        self._switch_page(2)    # 跳转到运行日志
+        self._switch_page(3)    # 跳转到运行日志
         self.progress_panel.clear()
         self.status_label.setText("● 运行中")
         self.status_label.setStyleSheet(f"color: {NEON_GREEN};")
@@ -339,6 +359,7 @@ class MainWindow(QMainWindow):
         self.progress_panel.log(f"✅ 采集完成！结果已保存: {os.path.basename(result_file)}", "SUCCESS")
         self.results_panel.load_file(result_file)
         self.results_panel._refresh_tasks()
+        self.script_panel._refresh_tasks()
 
     def _on_error(self, message: str):
         self._reset_ui()

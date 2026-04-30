@@ -166,6 +166,7 @@ class StatusRow(QWidget):
 class EnvironmentPanel(QWidget):
     ready_changed = pyqtSignal(bool)
     cookie_saved = pyqtSignal(str)  # cookie 文件路径
+    settings_changed = pyqtSignal()  # 设置变更通知持久化
 
     def __init__(self, settings: dict):
         super().__init__()
@@ -422,6 +423,7 @@ class EnvironmentPanel(QWidget):
 
     def _update_settings(self):
         self.settings["cdp_url"] = self.cdp_input.text().strip()
+        self.settings_changed.emit()
 
     def is_ready(self) -> bool:
         return self._ready

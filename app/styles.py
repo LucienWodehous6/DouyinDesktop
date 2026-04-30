@@ -421,6 +421,23 @@ QPlainTextEdit#jsonView {
 }
 
 /* ==========================================
+   QTextEdit 暗色
+   ========================================== */
+QTextEdit {
+    background: #0d1117;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 13px;
+    selection-background-color: rgba(255,107,129,0.25);
+}
+QTextEdit:focus {
+    border: 1px solid #ff6b81;
+    background: #161b22;
+}
+
+/* ==========================================
    表格 / 树
    ========================================== */
 QTreeWidget {
