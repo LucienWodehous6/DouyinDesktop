@@ -3,33 +3,50 @@ name: Build Windows EXE
 on:
   push:
     branches: [main]
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 安装 Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: 安装依赖
         run: pip install -r requirements.txt
 
+      - name: 安装 Playwright Chromium
+        run: python -m playwright install chromium
+
       - name: PyInstaller 打包
         run: pyinstaller DouyinScraperPro.spec --noconfirm
 
-      - name: 上传 EXE
+      - name: 复制浏览器文件
+        shell: cmd
+        run: |
+          for /f "tokens=*" %%i in ('python -c "import os; print(os.path.join(os.environ['LOCALAPPDATA'], 'ms-playwright'))"') do set CACHE=%%i
+          if exist "%CACHE%" (
+            xcopy /E /I /Y "%CACHE%\*" "dist\playwright_browsers\"
+            echo ok > "dist\playwright_browsers\.installed"
+          ) else (
+            for /f "tokens=*" %%i in ('python -c "import os; print(os.path.join(os.path.expanduser('~'), '.cache', 'ms-playwright'))"') do set CACHE2=%%i
+            if exist "!CACHE2!" (
+              xcopy /E /I /Y "!CACHE2!\*" "dist\playwright_browsers\"
+              echo ok > "dist\playwright_browsers\.installed"
+            )
+          )
+
+      - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
           name: DouyinScraperPro-Windows
           path: |
             dist/DouyinScraperPro.exe
+            dist/playwright_browsers/
             README.md
 
   release:
@@ -37,14 +54,15 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - name: 下载产物
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: DouyinScraperPro-Windows
 
-      - name: 创建 Release
-        uses: softprops/action-gh-release@v2
+      - name: 打包为 zip
+        run: zip -r DouyinScraperPro-Windows.zip DouyinScraperPro.exe playwright_browsers/ README.md
+
+      - uses: softprops/action-gh-release@v2
         with:
-          files: DouyinScraperPro.exe
+          files: DouyinScraperPro-Windows.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
