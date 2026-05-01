@@ -229,14 +229,8 @@ class CdpSettingsTab(QWidget):
             def run(self):
                 try:
                     if self.model_type == "image":
-                        # 图片模型：原生 HTTP POST 适配各种 API 路径
-                        from urllib.parse import urlparse
-                        parsed = urlparse(self.base_url)
-                        if parsed.path and parsed.path not in ("", "/", "/v1"):
-                            url = self.base_url
-                        else:
-                            url = f"{self.base_url}/images/generations"
-
+                        # 图片模型：标准 OpenAI 格式 POST
+                        url = f"{self.base_url}/images/generations"
                         print(f"[测试] 图片模型测试: {self.model_name}")
                         body = json.dumps({
                             "model": self.model_name,

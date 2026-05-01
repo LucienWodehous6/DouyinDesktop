@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QLocale
 from PyQt6.QtGui import QFont, QIcon, QAction
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -389,6 +389,7 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    QLocale.setDefault(QLocale(QLocale.Language.Chinese, QLocale.Country.China))
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setStyleSheet(MODERN_THEME)

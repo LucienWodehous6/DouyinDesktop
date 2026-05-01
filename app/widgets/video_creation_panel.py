@@ -549,13 +549,12 @@ class VideoCreationPanel(QWidget):
                 try:
                     import urllib.request
                     import urllib.error
-                    from openai import OpenAI
                     api_key = self.settings.get("openai_image_api_key") or self.settings.get("openai_api_key", "")
                     api_base = self.settings.get("openai_image_api_base") or self.settings.get("openai_api_base", "https://api.siliconflow.cn/v1")
                     model = self.settings.get("openai_image_model") or "Kwai-Kolors/Kolors"
                     base_url = api_base.rstrip("/")
 
-                    # 追加方向和尺寸约束
+                    # 方向和尺寸
                     orientation = self.orientation
                     if orientation.startswith("横"):
                         image_size = "1792x1024"
@@ -563,7 +562,6 @@ class VideoCreationPanel(QWidget):
                     else:
                         image_size = "1024x1792"
                         orient_text = "竖版 9:16"
-                    print(f"[视频创作] 方向: {orientation} → size={image_size}")
 
                     full_prompt = f"{self.prompt}\n\n画面比例：{orient_text}，必须严格按此比例构图。"
                     if self.ref_path and os.path.exists(self.ref_path):
@@ -571,15 +569,8 @@ class VideoCreationPanel(QWidget):
 
                     print(f"[视频创作] 生图: 分镜{self.scene_index+1}, url={base_url}, model={model}")
 
-                    # 确定请求 URL：如果 base_url 已包含具体路径则直接用，否则追 /images/generations
-                    from urllib.parse import urlparse
-                    parsed = urlparse(base_url)
-                    if parsed.path and parsed.path not in ("", "/", "/v1"):
-                        url = base_url
-                    else:
-                        url = f"{base_url}/images/generations"
-
-                    body = json.dumps({
+                    # 构建请求体
+                    body_dict = {
                         "model": model,
                         "prompt": full_prompt,
                         "n": 1,
@@ -589,7 +580,18 @@ class VideoCreationPanel(QWidget):
                         "guidance_scale": 7.5,
                         "batch_size": 1,
                         "negative_prompt": "blurry, low quality, distorted, deformed, ugly, bad anatomy",
-                    }).encode()
+                    }
+
+                    # 有参考图 → 图生图（base64编码传给模型）
+                    if self.ref_path and os.path.exists(self.ref_path):
+                        with open(self.ref_path, "rb") as f:
+                            ref_b64 = base64.b64encode(f.read()).decode()
+                        body_dict["image"] = ref_b64
+                        body_dict["strength"] = 0.75  # 参考图影响程度
+                        print(f"[视频创作] 参考图已编码 ({len(ref_b64)} chars)")
+
+                    url = f"{base_url}/images/generations"
+                    body = json.dumps(body_dict).encode()
 
                     req = urllib.request.Request(url, data=body, method="POST")
                     req.add_header("Authorization", f"Bearer {api_key}")
@@ -597,8 +599,16 @@ class VideoCreationPanel(QWidget):
                     print(f"[视频创作] POST {url}")
                     resp = urllib.request.urlopen(req, timeout=180)
                     data = json.loads(resp.read())
-                    urls = _extract_image_urls(data)
-                    img_url = urls[0] if urls else None
+
+                    # 标准 OpenAI 格式：{"images": [{"url": "..."}]} 或 {"data": [{"url": "..."}]}
+                    images = data.get("images") or data.get("data") or []
+                    img_url = None
+                    if images:
+                        first = images[0]
+                        if isinstance(first, dict):
+                            img_url = first.get("url") or first.get("image_url") or ""
+                        elif isinstance(first, str) and first.startswith("http"):
+                            img_url = first
                     if img_url:
                         img_data = urllib.request.urlopen(img_url, timeout=120).read()
                         self.result_signal.emit(self.scene_index, base64.b64encode(img_data).decode())
