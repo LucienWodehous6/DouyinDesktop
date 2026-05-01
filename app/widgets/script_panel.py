@@ -9,7 +9,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QTextEdit, QLineEdit, QProgressBar,
-    QComboBox, QMessageBox, QInputDialog, QCheckBox,
+    QComboBox, QMessageBox, QInputDialog, QCheckBox, QMenu,
 )
 
 
@@ -272,6 +272,7 @@ class ScriptPanel(QWidget):
         """)
         # setPlaceholderText 在 Qt 中通过 palette 控制，需要单独设
         self.prompt_edit.viewport().setStyleSheet("background: #0d1117;")
+        self._setup_chinese_context_menu(self.prompt_edit)
         layout.addWidget(self.prompt_edit)
 
         # ═════ 生成按钮 ═════
@@ -311,6 +312,7 @@ class ScriptPanel(QWidget):
         self.result_edit.setPlaceholderText("AI 生成的剧本将显示在这里...")
         self.result_edit.setMinimumHeight(350)
         self.result_edit.setReadOnly(True)
+        self._setup_chinese_context_menu(self.result_edit)
         self.result_edit.setStyleSheet("""
             QTextEdit#resultEdit {
                 background: #0d1117;
@@ -573,6 +575,25 @@ class ScriptPanel(QWidget):
 
     def set_settings(self, settings: dict):
         self._settings = settings
+
+    def _setup_chinese_context_menu(self, edit: QTextEdit):
+        """为 QTextEdit 设置中文右键菜单"""
+        edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        def show_menu(pos):
+            menu = QMenu(edit)
+            if not edit.isReadOnly():
+                menu.addAction("撤销", edit.undo).setEnabled(edit.document().isUndoAvailable())
+                menu.addAction("重做", edit.redo).setEnabled(edit.document().isRedoAvailable())
+                menu.addSeparator()
+                menu.addAction("剪切", edit.cut).setEnabled(edit.textCursor().hasSelection())
+            menu.addAction("复制", edit.copy).setEnabled(edit.textCursor().hasSelection())
+            if not edit.isReadOnly():
+                menu.addAction("粘贴", edit.paste)
+                menu.addAction("删除", lambda e=edit: e.textCursor().removeSelectedText()).setEnabled(edit.textCursor().hasSelection())
+            menu.addSeparator()
+            menu.addAction("全选", edit.selectAll)
+            menu.exec(edit.mapToGlobal(pos))
+        edit.customContextMenuRequested.connect(show_menu)
 
     def _refresh_tasks(self):
         if not self._task_store:

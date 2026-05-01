@@ -10,7 +10,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QTextEdit, QLineEdit, QProgressBar,
-    QComboBox, QMessageBox, QInputDialog,
+    QComboBox, QMessageBox, QInputDialog, QDialog, QMenu,
     QScrollArea, QFrame, QFileDialog, QCheckBox,
     QGroupBox, QGridLayout,
 )
@@ -64,6 +64,8 @@ class SceneWidget(QGroupBox):
                 padding: 8px; font-size: 12px;
             }
         """)
+        self.prompt_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.prompt_edit.customContextMenuRequested.connect(self._on_text_context_menu)
         layout.addWidget(self.prompt_edit)
 
         # 按钮行
@@ -88,7 +90,57 @@ class SceneWidget(QGroupBox):
         self.img_label.setFixedSize(180, 320)
         self.img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.img_label.setStyleSheet("border: 1px dashed #30363d; border-radius: 8px;")
+        self.img_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.img_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.img_label.customContextMenuRequested.connect(self._on_image_context_menu)
+        self.img_label.mousePressEvent = lambda e: self._on_image_click() if e.button() == Qt.MouseButton.LeftButton else None
         layout.addWidget(self.img_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+    def _on_image_click(self):
+        """点击图片放大查看"""
+        if not self.generated_image_path:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"分镜 {self.scene_index + 1} - 预览")
+        dialog.setFixedSize(600, 900)
+        dl = QVBoxLayout(dialog)
+        lbl = QLabel()
+        pixmap = QPixmap(self.generated_image_path).scaled(
+            560, 840, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        lbl.setPixmap(pixmap)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dl.addWidget(lbl)
+        dialog.exec()
+
+    def _on_image_context_menu(self, pos):
+        """右键菜单：另存为"""
+        if not self.generated_image_path:
+            return
+        menu = QMenu(self)
+        save_action = menu.addAction("💾 另存为...")
+        action = menu.exec(self.img_label.mapToGlobal(pos))
+        if action == save_action:
+            default_name = f"scene_{self.scene_index + 1}.png"
+            path, _ = QFileDialog.getSaveFileName(self, "保存图片", default_name, "PNG (*.png)")
+            if path:
+                import shutil
+                shutil.copy2(self.generated_image_path, path)
+                print(f"[视频创作] 图片已保存: {path}")
+
+    def _on_text_context_menu(self, pos):
+        """中文右键菜单"""
+        menu = QMenu(self)
+        edit = self.prompt_edit
+        menu.addAction("撤销", edit.undo).setEnabled(edit.document().isUndoAvailable())
+        menu.addAction("重做", edit.redo).setEnabled(edit.document().isRedoAvailable())
+        menu.addSeparator()
+        menu.addAction("剪切", edit.cut).setEnabled(edit.textCursor().hasSelection())
+        menu.addAction("复制", edit.copy).setEnabled(edit.textCursor().hasSelection())
+        menu.addAction("粘贴", edit.paste)
+        menu.addAction("删除", lambda e=edit: e.textCursor().removeSelectedText()).setEnabled(edit.textCursor().hasSelection())
+        menu.addSeparator()
+        menu.addAction("全选", edit.selectAll)
+        menu.exec(edit.mapToGlobal(pos))
 
 
 class VideoCreationPanel(QWidget):
