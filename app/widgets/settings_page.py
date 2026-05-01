@@ -130,7 +130,20 @@ class CdpSettingsTab(QWidget):
 
         # 视频大模型
         self._build_ai_group(layout, "🎬 视频大模型设置", "openai_video",
-                             "https://api.openai.com/v1", "sora", "video")
+                             "https://api.siliconflow.cn/v1", "Wan-AI/Wan2.2-I2V-A14B", "video")
+
+        # 抖音视频下载密钥
+        dl_group = QGroupBox("📥 抖音视频下载")
+        dl_form = QFormLayout(dl_group)
+        dl_form.setSpacing(12)
+        dl_key = "douyin_api_key"
+        dl_input = QLineEdit(self.settings.get(dl_key, ""))
+        dl_input.setPlaceholderText("用于语音转文字的 API Key")
+        dl_input.setEchoMode(QLineEdit.EchoMode.Password)
+        dl_input.setMinimumHeight(36)
+        dl_input.textChanged.connect(lambda t, b=dl_input, k=dl_key: self._on_ai_field_change(b, k))
+        dl_form.addRow("API 密钥:", dl_input)
+        layout.addWidget(dl_group)
 
         layout.addStretch()
 

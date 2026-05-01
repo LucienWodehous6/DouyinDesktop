@@ -361,9 +361,12 @@ class ScriptPanel(QWidget):
         finally:
             sys.exit = _orig_exit
 
-        api_key = self._settings.get("openai_text_api_key") or self._settings.get("openai_api_key") or os.environ.get("API_KEY", "")
+        api_key = (self._settings.get("douyin_api_key") or
+                   self._settings.get("openai_text_api_key") or
+                   self._settings.get("openai_api_key") or
+                   os.environ.get("API_KEY", ""))
         if not api_key:
-            raise RuntimeError("视频解析需要 API 密钥，请在设置中配置文字大模型 API Key")
+            raise RuntimeError("视频解析需要 API 密钥，请在设置中配置「视频提取密钥」或文字大模型 API Key")
 
         result = dld.extract_text(share_link, api_key=api_key, show_progress=True)
         return result.get("text", "")

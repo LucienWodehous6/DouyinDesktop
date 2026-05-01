@@ -89,6 +89,7 @@ class MainWindow(QMainWindow):
             ("🔍", "搜索采集"),
             ("🎬", "剧本生成"),
             ("🎥", "视频创作"),
+            ("📈", "抖音视频分析"),
             ("📟", "运行日志"),
             ("📊", "结果查看"),
         ]
@@ -100,9 +101,9 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addStretch()
 
-        # 设置按钮（导航到设置页 index=4）
+        # 设置按钮（导航到设置页 index=6）
         settings_btn = SidebarButton("⚙", "设置")
-        settings_btn.clicked.connect(lambda: self._switch_page(5))
+        settings_btn.clicked.connect(lambda: self._switch_page(6))
         sidebar_layout.addWidget(settings_btn)
 
         # 底部版本
@@ -135,6 +136,10 @@ class MainWindow(QMainWindow):
         self.video_panel = VideoCreationPanel(self.task_store, self.settings)
         self.stack.addWidget(self.video_panel)
 
+        from app.widgets.video_analysis_panel import VideoAnalysisPanel
+        self.video_analysis_panel = VideoAnalysisPanel(self.task_store, self.settings)
+        self.stack.addWidget(self.video_analysis_panel)
+
         self.progress_panel = ProgressPanel()
         self.stack.addWidget(self.progress_panel)
 
@@ -156,6 +161,13 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(index)
         for i, btn in enumerate(self.nav_group):
             btn.setChecked(i == index)
+        # 切换到对应页面时刷新数据
+        if index == 1:   # 剧本生成
+            self.script_panel._refresh_tasks()
+        elif index == 2: # 视频创作
+            self.video_panel._load_scripts()
+        elif index == 5: # 结果查看
+            self.results_panel._refresh_tasks()
 
     def _on_env_ready(self, ready: bool):
         """环境就绪状态变化时更新 UI"""
@@ -204,7 +216,7 @@ class MainWindow(QMainWindow):
         # 设置
         settings_menu = menubar.addMenu("设置")
         act_settings = QAction("打开设置页面...", self)
-        act_settings.triggered.connect(lambda: self._switch_page(4))
+        act_settings.triggered.connect(lambda: self._switch_page(6))
         settings_menu.addAction(act_settings)
 
         # 关于
@@ -241,12 +253,13 @@ class MainWindow(QMainWindow):
             "openai_text_api_base": "https://api.deepseek.com/v1",
             "openai_text_api_key": "",
             "openai_text_model": "deepseek-chat",
+            "douyin_api_key": "",
             "openai_image_api_base": "https://api.siliconflow.cn/v1",
             "openai_image_api_key": "",
             "openai_image_model": "Kwai-Kolors/Kolors",
-            "openai_video_api_base": "https://api.openai.com/v1",
+            "openai_video_api_base": "https://api.siliconflow.cn/v1",
             "openai_video_api_key": "",
-            "openai_video_model": "sora",
+            "openai_video_model": "Wan-AI/Wan2.2-I2V-A14B",
         }
         try:
             if os.path.exists(SETTINGS_FILE):
@@ -287,7 +300,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "打开结果文件", str(APP_DIR), "JSON (*.json)")
         if path:
             self.results_panel.load_file(path)
-            self._switch_page(4)    # 跳转到结果查看
+            self._switch_page(5)    # 跳转到结果查看
 
     def _export_results(self):
         if self.results_panel.is_empty():
@@ -310,7 +323,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "提示", "采集任务正在进行中。")
             return
 
-        self._switch_page(3)    # 跳转到运行日志
+        self._switch_page(4)    # 跳转到运行日志
         self.progress_panel.clear()
         self.status_label.setText("● 运行中")
         self.status_label.setStyleSheet(f"color: {NEON_GREEN};")

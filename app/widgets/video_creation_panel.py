@@ -15,6 +15,11 @@ from PyQt6.QtWidgets import (
     QGroupBox, QGridLayout,
 )
 from PyQt6.QtGui import QPixmap
+import io
+from PIL import Image
+import tempfile
+import urllib.request
+import urllib.error
 
 
 def _extract_image_urls(data: dict) -> list:
@@ -96,6 +101,19 @@ class SceneWidget(QGroupBox):
         self.img_label.mousePressEvent = lambda e: self._on_image_click() if e.button() == Qt.MouseButton.LeftButton else None
         layout.addWidget(self.img_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        # 视频状态
+        self.video_status_label = QLabel("")
+        self.video_status_label.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self.video_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.video_status_label.setVisible(False)
+        layout.addWidget(self.video_status_label)
+
+        self.play_video_btn = QPushButton("▶ 播放视频")
+        self.play_video_btn.setObjectName("smallBtn")
+        self.play_video_btn.setVisible(False)
+        self.play_video_btn.clicked.connect(self._play_video)
+        layout.addWidget(self.play_video_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
     def _on_image_click(self):
         """点击图片放大查看"""
         if not self.generated_image_path:
@@ -111,6 +129,19 @@ class SceneWidget(QGroupBox):
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         dl.addWidget(lbl)
         dialog.exec()
+
+    def _play_video(self):
+        """用系统默认播放器打开视频"""
+        if not self.generated_video_path:
+            return
+        import subprocess
+        path = self.generated_video_path
+        if sys.platform == "darwin":
+            subprocess.run(["open", path])
+        elif sys.platform == "win32":
+            os.startfile(path)
+        else:
+            subprocess.run(["xdg-open", path])
 
     def _on_image_context_menu(self, pos):
         """右键菜单：另存为"""
@@ -547,12 +578,12 @@ class VideoCreationPanel(QWidget):
 
             def run(self):
                 try:
-                    import urllib.request
-                    import urllib.error
+                    from openai import OpenAI
                     api_key = self.settings.get("openai_image_api_key") or self.settings.get("openai_api_key", "")
                     api_base = self.settings.get("openai_image_api_base") or self.settings.get("openai_api_base", "https://api.siliconflow.cn/v1")
                     model = self.settings.get("openai_image_model") or "Kwai-Kolors/Kolors"
                     base_url = api_base.rstrip("/")
+                    client = OpenAI(api_key=api_key, base_url=base_url)
 
                     # 方向和尺寸
                     orientation = self.orientation
@@ -564,62 +595,71 @@ class VideoCreationPanel(QWidget):
                         orient_text = "竖版 9:16"
 
                     full_prompt = f"{self.prompt}\n\n画面比例：{orient_text}，必须严格按此比例构图。"
+
+                    print(f"[视频创作] 生图: 分镜{self.scene_index+1}, base={base_url}, model={model}")
+
                     if self.ref_path and os.path.exists(self.ref_path):
-                        full_prompt += "\n与参考图保持一致的视觉风格，相同的色彩基调、光照和构图。"
+                        # 图生图：压缩参考图后用 data URI 格式
+                        img = Image.open(self.ref_path)
+                        # 缩放到合理尺寸
+                        img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG", optimize=True)
+                        ref_b64 = base64.b64encode(buf.getvalue()).decode()
+                        data_uri = f"data:image/png;base64,{ref_b64}"
+                        full_prompt = (
+                            f"{full_prompt}\n\n"
+                            f"参考图片已提供，请保持与参考图一致的视觉风格、色彩和构图。"
+                        )
+                        print(f"[视频创作] 图生图模式，参考图压缩后: {len(ref_b64)} chars")
+                        # 检查请求体大小
+                        body_size = len(data_uri)
+                        print(f"[视频创作] image字段大小: {body_size} bytes")
+                        resp = client.images.generate(
+                            model=model,
+                            prompt=full_prompt,
+                            n=1,
+                            size=image_size,
+                            extra_body={
+                                "image": data_uri,
+                                "image_size": image_size,
+                                "num_inference_steps": 20,
+                                "guidance_scale": 7.5,
+                                "strength": 0.75,
+                            }
+                        )
+                    else:
+                        # 文生图
+                        resp = client.images.generate(
+                            model=model,
+                            prompt=full_prompt,
+                            n=1,
+                            size=image_size,
+                            extra_body={
+                                "image_size": image_size,
+                                "num_inference_steps": 20,
+                                "guidance_scale": 7.5,
+                                "batch_size": 1,
+                                "negative_prompt": "blurry, low quality, distorted, deformed, ugly, bad anatomy",
+                            }
+                        )
 
-                    print(f"[视频创作] 生图: 分镜{self.scene_index+1}, url={base_url}, model={model}")
-
-                    # 构建请求体
-                    body_dict = {
-                        "model": model,
-                        "prompt": full_prompt,
-                        "n": 1,
-                        "size": image_size,
-                        "image_size": image_size,
-                        "num_inference_steps": 20,
-                        "guidance_scale": 7.5,
-                        "batch_size": 1,
-                        "negative_prompt": "blurry, low quality, distorted, deformed, ugly, bad anatomy",
-                    }
-
-                    # 有参考图 → 图生图（base64编码传给模型）
-                    if self.ref_path and os.path.exists(self.ref_path):
-                        with open(self.ref_path, "rb") as f:
-                            ref_b64 = base64.b64encode(f.read()).decode()
-                        body_dict["image"] = ref_b64
-                        body_dict["strength"] = 0.75  # 参考图影响程度
-                        print(f"[视频创作] 参考图已编码 ({len(ref_b64)} chars)")
-
-                    url = f"{base_url}/images/generations"
-                    body = json.dumps(body_dict).encode()
-
-                    req = urllib.request.Request(url, data=body, method="POST")
-                    req.add_header("Authorization", f"Bearer {api_key}")
-                    req.add_header("Content-Type", "application/json")
-                    print(f"[视频创作] POST {url}")
-                    resp = urllib.request.urlopen(req, timeout=180)
-                    data = json.loads(resp.read())
-
-                    # 标准 OpenAI 格式：{"images": [{"url": "..."}]} 或 {"data": [{"url": "..."}]}
-                    images = data.get("images") or data.get("data") or []
+                    # 解析返回 URL
                     img_url = None
-                    if images:
-                        first = images[0]
-                        if isinstance(first, dict):
-                            img_url = first.get("url") or first.get("image_url") or ""
-                        elif isinstance(first, str) and first.startswith("http"):
-                            img_url = first
+                    if hasattr(resp, "data") and resp.data:
+                        img_url = resp.data[0].url
+                    if not img_url and hasattr(resp, "images") and resp.images:
+                        img_url = resp.images[0].url
+
                     if img_url:
+                        import urllib.request
                         img_data = urllib.request.urlopen(img_url, timeout=120).read()
                         self.result_signal.emit(self.scene_index, base64.b64encode(img_data).decode())
                     else:
-                        self.error_signal.emit(self.scene_index, f"未获取到图片URL，返回: {json.dumps(data)[:200]}")
-                except urllib.error.HTTPError as e:
-                    body = ""
-                    try: body = e.read().decode()[:300]
-                    except: pass
-                    self.error_signal.emit(self.scene_index, f"HTTP {e.code}: {e.reason}\n{body}")
+                        self.error_signal.emit(self.scene_index, f"未获取到图片URL, resp={resp}")
                 except Exception as e:
+                    import traceback
+                    traceback.print_exc()
                     self.error_signal.emit(self.scene_index, str(e))
 
         orientation = self.orientation_combo.currentText()
@@ -680,57 +720,125 @@ class VideoCreationPanel(QWidget):
         sw = self._scene_widgets[scene_index]
         sw.gen_video_btn.setEnabled(False)
         sw.gen_video_btn.setText("生成中...")
-
-        prev_last_frame = ""
-        if scene_index > 0:
-            prev_sw = self._scene_widgets[scene_index - 1]
-            if prev_sw.generated_video_path:
-                prev_last_frame = prev_sw.generated_video_path + ".last_frame.png"
+        sw.video_status_label.setText("⏳ 视频生成中...")
+        sw.video_status_label.setStyleSheet("color: #ffa502; font-size: 11px;")
+        sw.video_status_label.setVisible(True)
 
         class VideoGenWorker(QThread):
-            result_signal = pyqtSignal(int, str)
+            result_signal = pyqtSignal(int, str)   # scene_index, video_url
             error_signal = pyqtSignal(int, str)
 
-            def __init__(self, settings, image_path, prev_frame, scene_index):
+            def __init__(self, settings, image_path, scene_index, scene_prompt, orientation):
                 super().__init__()
                 self.settings = settings
                 self.image_path = image_path
-                self.prev_frame = prev_frame
                 self.scene_index = scene_index
+                self.scene_prompt = scene_prompt
+                self.orientation = orientation
 
             def run(self):
                 try:
-                    from openai import OpenAI
+                    import time
                     api_key = self.settings.get("openai_video_api_key") or self.settings.get("openai_api_key", "")
-                    api_base = self.settings.get("openai_video_api_base") or self.settings.get("openai_api_base", "")
+                    api_base = self.settings.get("openai_video_api_base") or self.settings.get("openai_api_base", "https://api.siliconflow.cn/v1")
+                    model = self.settings.get("openai_video_model") or "Wan-AI/Wan2.2-I2V-A14B"
                     base_url = api_base.rstrip("/")
 
-                    # 视频生成 — 使用 DALL-E / Sora 兼容格式
-                    # 注: 具体API取决于视频模型提供商
-                    prompt = "Generate a smooth cinematic video from this scene, 16:9, high quality"
-                    if self.prev_frame:
-                        prompt += ", starting from the reference frame, smooth transition"
+                    img_size = "1280x720" if self.orientation.startswith("横") else "720x1280"
 
-                    # 占位：实际视频生成API待对接
-                    self.result_signal.emit(self.scene_index, f"video_placeholder_{self.scene_index}")
+                    # 编码首帧图片
+                    with open(self.image_path, "rb") as f:
+                        img_b64 = base64.b64encode(f.read()).decode()
+                    image_data = f"data:image/png;base64,{img_b64}"
+                    print(f"[视频创作] 视频-分镜{self.scene_index+1}: 首帧图片 {len(img_b64)} chars")
+
+                    # Step 1: 提交视频生成任务
+                    submit_url = f"{base_url}/video/submit"
+                    body = json.dumps({
+                        "model": model,
+                        "prompt": self.scene_prompt,
+                        "image": image_data,
+                        "image_size": img_size,
+                    }).encode()
+                    req = urllib.request.Request(submit_url, data=body, method="POST")
+                    req.add_header("Authorization", f"Bearer {api_key}")
+                    req.add_header("Content-Type", "application/json")
+                    print(f"[视频创作] POST {submit_url}")
+                    resp = urllib.request.urlopen(req, timeout=30)
+                    submit_data = json.loads(resp.read())
+                    request_id = submit_data.get("requestId", "")
+                    print(f"[视频创作] 任务已提交, requestId={request_id}")
+                    print(f"[视频创作] 提交响应: {json.dumps(submit_data, ensure_ascii=False)}")
+
+                    if not request_id:
+                        self.error_signal.emit(self.scene_index, f"未获取到requestId: {submit_data}")
+                        return
+
+                    # Step 2: 轮询状态
+                    status_url = f"{base_url}/video/status"
+                    max_polls = 60  # 最多10分钟
+                    for poll in range(max_polls):
+                        time.sleep(10)
+                        body = json.dumps({"requestId": request_id}).encode()
+                        req = urllib.request.Request(status_url, data=body, method="POST")
+                        req.add_header("Authorization", f"Bearer {api_key}")
+                        req.add_header("Content-Type", "application/json")
+                        resp = urllib.request.urlopen(req, timeout=30)
+                        status_data = json.loads(resp.read())
+                        status = status_data.get("status", "")
+                        print(f"[视频创作] 轮询 {poll+1}/{max_polls}: status={status}")
+                        print(f"[视频创作] 状态响应: {json.dumps(status_data, ensure_ascii=False)[:300]}")
+
+                        if status == "Succeed":
+                            videos = (status_data.get("results", {}).get("videos") or [])
+                            if videos and videos[0].get("url"):
+                                video_url = videos[0]["url"]
+                                print(f"[视频创作] ✅ 视频生成成功: {video_url[:100]}...")
+                                # 下载视频
+                                vd = urllib.request.urlopen(video_url, timeout=120).read()
+                                video_path = os.path.join(tempfile.gettempdir(), f"dy_video_{self.scene_index}_{os.getpid()}.mp4")
+                                with open(video_path, "wb") as vf:
+                                    vf.write(vd)
+                                print(f"[视频创作] 视频已保存: {video_path} ({len(vd)} bytes)")
+                                self.result_signal.emit(self.scene_index, video_path)
+                                return
+                            else:
+                                self.error_signal.emit(self.scene_index, "视频生成成功但未获取到URL")
+                                return
+                        elif status in ("Failed", "Error"):
+                            reason = status_data.get("reason", "未知错误")
+                            self.error_signal.emit(self.scene_index, f"视频生成失败: {reason}")
+                            return
+
+                    self.error_signal.emit(self.scene_index, f"视频生成超时 ({max_polls*10}秒)")
                 except Exception as e:
+                    import traceback
+                    traceback.print_exc()
                     self.error_signal.emit(self.scene_index, str(e))
 
-        worker = VideoGenWorker(self._settings, sw.generated_image_path,
-                                 prev_last_frame, scene_index)
-        worker.result_signal.connect(lambda idx, p: self._on_scene_video_done(idx))
+        prompt_text = self._scenes[scene_index]["title"]
+        orientation = self.orientation_combo.currentText()
+        worker = VideoGenWorker(self._settings, sw.generated_image_path, scene_index, prompt_text, orientation)
+        worker.result_signal.connect(lambda idx, p: self._on_scene_video_done(idx, p))
         worker.error_signal.connect(lambda idx, m: self._on_scene_video_error(idx, m))
         self._workers.append(worker)
         worker.start()
 
-    def _on_scene_video_done(self, scene_index: int):
+    def _on_scene_video_done(self, scene_index: int, video_path: str = ""):
         sw = self._scene_widgets[scene_index]
-        sw.gen_video_btn.setText("✅ 完成")
+        sw.generated_video_path = video_path
+        sw.gen_video_btn.setText("🎬 重新生成")
+        sw.gen_video_btn.setEnabled(True)
+        sw.video_status_label.setText("✅ 视频已生成")
+        sw.video_status_label.setStyleSheet("color: #2ed573; font-size: 11px;")
+        sw.play_video_btn.setVisible(True)
 
     def _on_scene_video_error(self, scene_index: int, msg: str):
         sw = self._scene_widgets[scene_index]
         sw.gen_video_btn.setEnabled(True)
         sw.gen_video_btn.setText("🎬 生成视频")
+        sw.video_status_label.setText(f"❌ {msg}")
+        sw.video_status_label.setStyleSheet("color: #ff4757; font-size: 11px;")
         QMessageBox.critical(self, "视频生成失败", f"分镜{scene_index+1}: {msg}")
 
     # ═══════════════ 最终视频创作 ═══════════════

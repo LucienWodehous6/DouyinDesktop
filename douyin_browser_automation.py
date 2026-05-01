@@ -1210,7 +1210,7 @@ def search_via_cdp(search_text=SEARCH_TEXT, cookie_file=None, match_keywords=Non
 
         # 导航到抖音首页
         print("[*] 导航到抖音首页...")
-        page.goto("https://www.douyin.com/", wait_until="domcontentloaded")
+        page.goto("https://www.douyin.com/jingxuan", wait_until="domcontentloaded")
         time.sleep(3)
 
         # 定位搜索框

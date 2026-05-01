@@ -348,9 +348,9 @@ def extract_text(share_link: str, api_key: Optional[str] = None, output_dir: Opt
     返回:
         dict: 包含 video_info, text, output_path 的字典
     """
-    api_key = api_key or os.getenv('API_KEY')
+    api_key = api_key or os.getenv('API_KEY') or os.getenv('DOUYIN_API_KEY')
     if not api_key:
-        raise ValueError("未设置环境变量 API_KEY，请先获取硅基流动 API 密钥")
+        raise ValueError("未设置 API 密钥，请通过 --api-key 参数传入或设置环境变量 API_KEY / DOUYIN_API_KEY")
 
     processor = DouyinProcessor(api_key)
 
@@ -439,7 +439,7 @@ def main():
     parser.add_argument("--action", "-a", choices=["info", "download", "extract"],
                         default="info", help="操作类型: info(获取信息), download(下载视频), extract(提取文案)")
     parser.add_argument("--output", "-o", default="./output", help="输出目录 (默认 ./output)")
-    parser.add_argument("--api-key", "-k", help="硅基流动 API 密钥 (也可通过 DOUYIN_API_KEY 环境变量设置)")
+    parser.add_argument("--api-key", "-k", help="API 密钥 (也可通过 API_KEY 或 DOUYIN_API_KEY 环境变量设置)")
     parser.add_argument("--save-video", "-v", action="store_true", help="提取文案时同时保存视频")
     parser.add_argument("--quiet", "-q", action="store_true", help="安静模式，减少输出")
 
