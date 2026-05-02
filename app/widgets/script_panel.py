@@ -5,11 +5,13 @@ import json
 import sys
 import importlib.util
 
+import mistune
 from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QTextEdit, QLineEdit, QProgressBar,
     QComboBox, QMessageBox, QInputDialog, QCheckBox, QMenu,
+    QScrollArea,
 )
 
 
@@ -307,24 +309,38 @@ class ScriptPanel(QWidget):
         section4.setObjectName("sectionLabel")
         layout.addWidget(section4)
 
-        self.result_edit = QTextEdit()
-        self.result_edit.setObjectName("resultEdit")
-        self.result_edit.setPlaceholderText("AI 生成的剧本将显示在这里...")
-        self.result_edit.setMinimumHeight(350)
-        self.result_edit.setReadOnly(True)
-        self._setup_chinese_context_menu(self.result_edit)
-        self.result_edit.setStyleSheet("""
-            QTextEdit#resultEdit {
+        self.result_scroll = QScrollArea()
+        self.result_scroll.setObjectName("resultScroll")
+        self.result_scroll.setWidgetResizable(True)
+        self.result_scroll.setMinimumHeight(350)
+        self.result_scroll.setStyleSheet("""
+            QScrollArea#resultScroll {
                 background: #0d1117;
-                color: #c9d1d9;
                 border: 1px solid #30363d;
                 border-radius: 8px;
+            }
+            QScrollArea#resultScroll > QWidget {
+                background: #0d1117;
+            }
+        """)
+
+        self.result_label = QLabel()
+        self.result_label.setObjectName("resultLabel")
+        self.result_label.setText("AI 生成的剧本将显示在这里...")
+        self.result_label.setStyleSheet("""
+            QLabel#resultLabel {
+                background: #0d1117;
+                color: #c9d1d9;
                 padding: 12px;
                 font-size: 13px;
                 selection-background-color: rgba(255,107,129,0.3);
             }
         """)
-        layout.addWidget(self.result_edit)
+        self.result_label.setWordWrap(True)
+        self.result_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        self.result_scroll.setWidget(self.result_label)
+        layout.addWidget(self.result_scroll)
 
         result_btns = QHBoxLayout()
         result_btns.addStretch()
@@ -333,6 +349,12 @@ class ScriptPanel(QWidget):
         self.save_btn.clicked.connect(self._save_script)
         self.save_btn.setEnabled(False)
         result_btns.addWidget(self.save_btn)
+
+        self.modify_btn = QPushButton("✏ 修改剧本")
+        self.modify_btn.setObjectName("smallBtn")
+        self.modify_btn.clicked.connect(self._modify_script)
+        self.modify_btn.setEnabled(False)
+        result_btns.addWidget(self.modify_btn)
         layout.addLayout(result_btns)
 
     # ── 生成 ──
@@ -347,7 +369,7 @@ class ScriptPanel(QWidget):
         # 惰性导入，避免 check_dependencies() 在 import 时 sys.exit
         spec = importlib.util.spec_from_file_location(
             "douyin_downloader",
-            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "douyin_downloader.py")
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "core_modules", "douyin_downloader.py")
         )
         if spec is None or spec.loader is None:
             raise RuntimeError("无法加载 douyin_downloader.py")
@@ -490,7 +512,9 @@ class ScriptPanel(QWidget):
 
         self.gen_btn.setEnabled(False)
         self.gen_btn.setText("生成中...")
-        self.result_edit.clear()
+        if hasattr(self, "_result_buf"):
+            self._result_buf = ""
+        self.result_label.setText("AI 正在生成剧本，请稍候...")
 
         self._worker = ScriptWorker(
             api_key, api_base, model, full_prompt, system_prompt,
@@ -505,11 +529,41 @@ class ScriptPanel(QWidget):
 
     def _on_chunk(self, text: str):
         """流式追加到界面"""
-        cursor = self.result_edit.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-        cursor.insertText(text)
-        self.result_edit.setTextCursor(cursor)
-        self.result_edit.ensureCursorVisible()
+        if not hasattr(self, "_result_buf"):
+            self._result_buf = ""
+        self._result_buf += text
+        html = self._render_markdown(self._result_buf)
+        self.result_label.setText(html)
+        self.result_scroll.verticalScrollBar().setValue(self.result_scroll.verticalScrollBar().maximum())
+
+    def _render_markdown(self, text: str) -> str:
+        """将 markdown 渲染为带样式的 HTML"""
+        html = mistune.html(text)
+        css = """
+        <style>
+        body { color: #c9d1d9; font-size: 13px; line-height: 1.6; margin: 0; padding: 12px; }
+        h1, h2, h3, h4 { color: #e6edf3; font-weight: bold; margin: 12px 0 8px 0; }
+        h1 { font-size: 18px; border-bottom: 1px solid #30363d; padding-bottom: 6px; }
+        h2 { font-size: 16px; }
+        h3 { font-size: 14px; }
+        p { margin: 8px 0; }
+        code { background: #161b22; color: #ff7b72; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+        pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 12px; overflow-x: auto; }
+        pre code { background: none; padding: 0; color: #c9d1d9; }
+        blockquote { border-left: 3px solid #ff6b81; margin: 8px 0; padding: 4px 12px; color: #8b949e; }
+        ul, ol { margin: 8px 0; padding-left: 24px; }
+        li { margin: 4px 0; }
+        strong { color: #e6edf3; font-weight: bold; }
+        em { color: #c9d1d9; font-style: italic; }
+        a { color: #58a6ff; text-decoration: none; }
+        table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+        th, td { border: 1px solid #30363d; padding: 6px 12px; text-align: left; }
+        th { background: #161b22; color: #e6edf3; }
+        tr:nth-child(even) { background: #161b22; }
+        hr { border: none; border-top: 1px solid #30363d; margin: 12px 0; }
+        </style>
+        """
+        return f"<!DOCTYPE html><html><head>{css}</head><body>{html}</body></html>"
 
     def _on_progress(self, value: int, message: str):
         """更新进度条"""
@@ -526,14 +580,26 @@ class ScriptPanel(QWidget):
         self._last_prompt = self.prompt_edit.toPlainText().strip()
         self._hide_progress()
         self.save_btn.setEnabled(True)
+        self.modify_btn.setEnabled(True)
         self.gen_btn.setEnabled(True)
         self.gen_btn.setText("✨ AI 生成剧本")
+
+    def _on_modify_result(self, text: str):
+        print(f"[剧本] === 修改完成 === ({len(text)} 字符)")
+        self._last_result = text
+        self._hide_progress()
+        self.save_btn.setEnabled(True)
+        self.modify_btn.setEnabled(True)
+        self.gen_btn.setEnabled(True)
+        self.gen_btn.setText("✨ AI 生成剧本")
+        QMessageBox.information(self, "修改成功", "剧本已根据您的意见修改完成。")
 
     def _on_error(self, msg: str):
         print(f"[剧本] === 生成失败 === {msg}")
         self._hide_progress()
-        self.result_edit.setPlainText(f"❌ 生成失败: {msg}")
+        self.result_label.setText(f"<p style='color:#f85149'>❌ 生成失败: {msg}</p>")
         self.gen_btn.setEnabled(True)
+        self.modify_btn.setEnabled(True)
         self.gen_btn.setText("✨ AI 生成剧本")
 
     def _save_script(self):
@@ -569,6 +635,67 @@ class ScriptPanel(QWidget):
             )
         except Exception as e:
             QMessageBox.critical(self, "保存失败", str(e))
+
+    def _modify_script(self):
+        """弹出输入框收集修改意见，调用 AI 修改剧本"""
+        if not hasattr(self, "_last_result") or not self._last_result:
+            QMessageBox.warning(self, "提示", "没有可修改的剧本，请先生成。")
+            return
+
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle("修改剧本")
+        dialog.setLabelText("请描述您的修改意见：")
+        dialog.setTextValue("")
+        dialog.setOkButtonText("确定")
+        dialog.setCancelButtonText("取消")
+        if dialog.exec() != QInputDialog.DialogCode.Accepted:
+            return
+        user_feedback = dialog.textValue().strip()
+        if not user_feedback:
+            QMessageBox.warning(self, "提示", "修改意见不能为空。")
+            return
+
+        # 构建修改提示词
+        modify_prompt = (
+            f"以下是原始剧本：\n{self._last_result}\n\n"
+            f"用户修改意见：{user_feedback}\n\n"
+            f"请根据用户的修改意见，对上述剧本进行修改。只输出修改后的剧本，不要额外的解释。"
+        )
+
+        # API 配置
+        api_key = self._settings.get("openai_text_api_key") or self._settings.get("openai_api_key") or os.environ.get("OPENAI_API_KEY", "")
+        api_base = self._settings.get("openai_text_api_base") or self._settings.get("openai_api_base") or os.environ.get("OPENAI_API_BASE", "https://api.deepseek.com/v1")
+        model = self._settings.get("openai_text_model") or self._settings.get("openai_model") or os.environ.get("OPENAI_MODEL", "deepseek-chat")
+
+        if not api_key:
+            QMessageBox.warning(self, "提示", "请先在设置页面配置 OpenAI API Key。")
+            return
+
+        print(f"[剧本] === 开始修改 ===")
+        print(f"[剧本] API 地址: {api_base}")
+        print(f"[剧本] 模型: {model}")
+
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(10)
+        self.progress_label.setVisible(True)
+        self.progress_label.setText("正在修改剧本...")
+
+        self.modify_btn.setEnabled(False)
+        self.save_btn.setEnabled(False)
+        if hasattr(self, "_result_buf"):
+            self._result_buf = ""
+        self.result_label.setText("AI 正在修改剧本，请稍候...")
+
+        self._worker = ScriptWorker(
+            api_key, api_base, model, modify_prompt, "",
+            video_ids=None,
+            extract_func=None,
+        )
+        self._worker.chunk_signal.connect(self._on_chunk)
+        self._worker.progress_signal.connect(self._on_progress)
+        self._worker.result_signal.connect(self._on_modify_result)
+        self._worker.error_signal.connect(self._on_error)
+        self._worker.start()
 
     # ── 外部调用 ──
 

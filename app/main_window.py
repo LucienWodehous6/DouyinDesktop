@@ -350,6 +350,7 @@ class MainWindow(QMainWindow):
             cdp_url=self.settings.get("cdp_url", "http://127.0.0.1:9222"),
             cookie_file=self.settings.get("cookie_file"),
             use_cdp=self.settings.get("use_cdp", True),
+            dm_message=params.get("dm_message"),
         )
         self.worker.log_signal.connect(self.progress_panel.log)
         self.worker.progress_signal.connect(self.progress_panel.set_progress)

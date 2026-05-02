@@ -44,7 +44,7 @@
 │       │            │            │            │        │
 │  ┌────┴────────────┴────────────┴────────────┴────┐  │
 │  │              ~/.dy/ (持久化存储)                 │  │
-│  │  settings.json  /  results/  /  scripts/         │  │
+│  │  settings.json  /  results/  /  core_modules/       │  │
 │  └─────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────┘
 ```
@@ -57,8 +57,9 @@
 douyin-desktop/
 ├── main.py                          # 入口（浏览器检测 + 启动窗口）
 ├── requirements.txt                 # PyQt6 + playwright + openai + Pillow
-├── douyin_browser_automation.py     # 核心采集脚本（1452 行）
-├── douyin_downloader.py             # 视频下载 & 语音转文字
+├── core_modules/
+│   ├── douyin_browser_automation.py # 核心采集脚本
+│   └── douyin_downloader.py         # 视频下载 & 语音转文字
 ├── models/
 │   ├── douyin_script.md             # 剧本生成系统提示词
 │   └── storyboard_split.md          # 分镜拆分系统提示词
@@ -205,13 +206,13 @@ python main.py
 
 ```bash
 # 基础搜索
-python douyin_browser_automation.py -s "核桃手串"
+python core_modules/douyin_browser_automation.py -s "核桃手串"
 
 # 带评论关键字
-python douyin_browser_automation.py -s "核桃手串" -k "怎么买|多少钱"
+python core_modules/douyin_browser_automation.py -s "核桃手串" -k "怎么买|多少钱"
 
 # 视频文案提取
-python douyin_downloader.py --link "抖音分享链接" --action extract --output ./output
+python core_modules/douyin_downloader.py --link "抖音分享链接" --action extract --output ./output
 ```
 
 ---

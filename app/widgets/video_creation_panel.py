@@ -48,14 +48,37 @@ class SceneWidget(QGroupBox):
     """单个分镜 UI 组件"""
     image_generated = pyqtSignal(int)  # scene_index
 
-    def __init__(self, scene_index: int, title: str, prompt: str, parent=None):
+    def __init__(self, scene_index: int, title: str, prompt: str, panel=None, parent=None):
         super().__init__(f"分镜 {scene_index + 1}: {title}", parent)
         self.scene_index = scene_index
+        self._panel = panel
         self.generated_image_path = ""
         self.generated_video_path = ""
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
+
+        # 标题行：可编辑标题 + 操作按钮
+        title_row = QHBoxLayout()
+        title_row.addWidget(QLabel("分镜标题:"))
+
+        self.title_edit = QLineEdit(title)
+        self.title_edit.setStyleSheet("""
+            QLineEdit {
+                background: #0d1117; color: #c9d1d9;
+                border: 1px solid #30363d; border-radius: 6px;
+                padding: 4px 8px; font-size: 12px;
+            }
+        """)
+        self.title_edit.textChanged.connect(self._on_title_changed)
+        title_row.addWidget(self.title_edit, 1)
+
+        self.upload_img_btn = QPushButton("📤 上传图片")
+        self.upload_img_btn.setObjectName("smallBtn")
+        self.upload_img_btn.clicked.connect(self._on_upload_image)
+        title_row.addWidget(self.upload_img_btn)
+
+        layout.addLayout(title_row)
 
         # 提示词
         layout.addWidget(QLabel("生图提示词:"))
@@ -113,6 +136,37 @@ class SceneWidget(QGroupBox):
         self.play_video_btn.setVisible(False)
         self.play_video_btn.clicked.connect(self._play_video)
         layout.addWidget(self.play_video_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+    def _on_title_changed(self, text: str):
+        """修改分镜标题后同步更新 GroupBox 标题和场景数据"""
+        self.setTitle(f"分镜 {self.scene_index + 1}: {text}")
+        if self._panel:
+            self._panel._scenes[self.scene_index]["title"] = text
+
+    def _on_upload_image(self):
+        """上传自定义图片作为分镜图片"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择分镜图片", "",
+            "Images (*.jpg *.jpeg *.png *.webp)")
+        if not path:
+            return
+        import shutil
+        import tempfile
+        ext = os.path.splitext(path)[1] or ".png"
+        dst = os.path.join(tempfile.gettempdir(), f"dy_scene_{self.scene_index}_{os.getpid()}{ext}")
+        shutil.copy2(path, dst)
+        self.generated_image_path = dst
+
+        pixmap = QPixmap(dst).scaled(180, 320, Qt.AspectRatioMode.KeepAspectRatio,
+                                     Qt.TransformationMode.SmoothTransformation)
+        self.img_label.setPixmap(pixmap)
+        self.img_label.setStyleSheet("border: 1px solid #2ed573; border-radius: 8px;")
+        self.img_status.setText("📤 自定义图片")
+        self.img_status.setStyleSheet("color: #2ed573; font-size: 11px;")
+        self.gen_video_btn.setEnabled(True)
+        if self._panel:
+            self._panel._scenes[self.scene_index]["image"] = dst
+        print(f"[视频创作] 分镜{self.scene_index+1} 已上传自定义图片: {dst}")
 
     def _on_image_click(self):
         """点击图片放大查看"""
@@ -252,6 +306,11 @@ class VideoCreationPanel(QWidget):
         self.gen_all_btn.clicked.connect(self._generate_all_images)
         self.gen_all_btn.setEnabled(False)
         action_row.addWidget(self.gen_all_btn)
+
+        self.add_scene_btn = QPushButton("➕ 手动添加分镜")
+        self.add_scene_btn.setObjectName("primaryBtn")
+        self.add_scene_btn.clicked.connect(self._add_scene)
+        action_row.addWidget(self.add_scene_btn)
 
         self.create_video_btn = QPushButton("🎬 创作视频")
         self.create_video_btn.setObjectName("primaryBtn")
@@ -530,6 +589,35 @@ class VideoCreationPanel(QWidget):
         self.split_btn.setText("🔀 AI 拆分分镜")
         QMessageBox.critical(self, "拆分失败", msg)
 
+    def _add_scene(self):
+        """手动添加一个新分镜"""
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle("添加分镜")
+        dialog.setLabelText("分镜标题:")
+        dialog.setTextValue("")
+        dialog.setOkButtonText("确定")
+        dialog.setCancelButtonText("取消")
+        if dialog.exec() != QInputDialog.DialogCode.Accepted:
+            return
+        title = dialog.textValue().strip()
+        if not title:
+            QMessageBox.warning(self, "提示", "分镜标题不能为空。")
+            return
+
+        new_scene = {"title": title, "prompt": "请描述这个分镜的画面内容", "image": "", "video": ""}
+        scene_index = len(self._scenes)
+        self._scenes.append(new_scene)
+
+        sw = SceneWidget(scene_index, title, new_scene["prompt"], panel=self)
+        sw.gen_img_btn.clicked.connect(
+            lambda checked, idx=scene_index: self._generate_scene_image(idx))
+        sw.gen_video_btn.clicked.connect(
+            lambda checked, idx=scene_index: self._generate_scene_video(idx))
+        self.scene_layout.insertWidget(self.scene_layout.count() - 1, sw)
+        self._scene_widgets.append(sw)
+        self.gen_all_btn.setEnabled(True)
+        print(f"[视频创作] 手动添加分镜: {title}")
+
     def _build_scene_ui(self):
         """根据分镜数据重建 UI"""
         for w in self._scene_widgets:
@@ -538,7 +626,7 @@ class VideoCreationPanel(QWidget):
         self._scene_widgets.clear()
 
         for i, scene in enumerate(self._scenes):
-            sw = SceneWidget(i, scene["title"], scene["prompt"])
+            sw = SceneWidget(i, scene["title"], scene["prompt"], panel=self)
             sw.gen_img_btn.clicked.connect(
                 lambda checked, idx=i: self._generate_scene_image(idx))
             sw.gen_video_btn.clicked.connect(

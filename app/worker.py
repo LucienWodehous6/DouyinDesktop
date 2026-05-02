@@ -30,6 +30,7 @@ class DouyinWorker(QThread):
         cdp_url: str = "http://127.0.0.1:9222",
         cookie_file: str | None = None,
         use_cdp: bool = True,
+        dm_message: str | None = None,
     ):
         super().__init__()
         self.task_id = task_id
@@ -43,6 +44,7 @@ class DouyinWorker(QThread):
         self.cdp_url = cdp_url
         self.cookie_file = cookie_file
         self.use_cdp = use_cdp
+        self.dm_message = dm_message
         self._stop_event = threading.Event()
 
     def stop(self):
@@ -58,16 +60,16 @@ class DouyinWorker(QThread):
             self.error_signal.emit(str(e))
 
     def _run_automation(self):
-        """动态导入 douyin_browser_automation — 从 EXE_DIR/scripts/ 加载（打包后）
-        开发模式回退到项目根目录。核心脚本不打包进应用，保护代码安全。"""
+        """动态导入 douyin_browser_automation — 从 EXE_DIR/core_modules/ 加载（打包后）
+        开发模式回退到项目根目录 core_modules/。核心脚本不打包进应用，保护代码安全。"""
 
         # 获取脚本所在目录
         if getattr(sys, 'frozen', False):
-            # 打包后：exe 同级目录下的 scripts/
-            scripts_dir = os.path.join(os.path.dirname(sys.executable), "scripts")
+            # 打包后：exe 同级目录下的 core_modules/
+            scripts_dir = os.path.join(os.path.dirname(sys.executable), "core_modules")
         else:
-            # 开发模式：项目根目录
-            scripts_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # 开发模式：项目根目录 core_modules/
+            scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "core_modules")
 
         if scripts_dir not in sys.path:
             sys.path.insert(0, scripts_dir)
@@ -150,6 +152,7 @@ class DouyinWorker(QThread):
                     video_count=self.video_count,
                     sort_by=self.sort_by,
                     time_filter=self.time_filter,
+                    dm_message=self.dm_message,
                 )
             else:
                 dba.search_via_launch(
@@ -159,4 +162,5 @@ class DouyinWorker(QThread):
                     video_count=self.video_count,
                     sort_by=self.sort_by,
                     time_filter=self.time_filter,
+                    dm_message=self.dm_message,
                 )

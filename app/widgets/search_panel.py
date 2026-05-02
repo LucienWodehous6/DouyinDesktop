@@ -4,7 +4,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QLabel, QLineEdit, QPushButton, QSpinBox, QComboBox,
-    QGridLayout, QCheckBox, QFrame, QMessageBox,
+    QGridLayout, QCheckBox, QFrame, QMessageBox, QScrollArea,
 )
 
 TIME_MAP = {"不限": None, "一天内": "一天内", "一周内": "一周内", "半年内": "半年内"}
@@ -33,9 +33,52 @@ class SearchPanel(QWidget):
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # 滚动区域
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+            }
+            QScrollArea > QWidget {
+                background: transparent;
+            }
+            QScrollArea::corner {
+                background: transparent;
+            }
+            QScrollBar:vertical {
+                background: #161b22;
+                width: 6px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #30363d;
+                border-radius: 3px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #484f58;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
+        outer.addWidget(scroll)
+
+        # 内容 widget（放在 scroll 之后）
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setSpacing(16)
         layout.setContentsMargins(28, 24, 28, 24)
+        scroll.setWidget(content)
 
         # ── 标题 ──
         title = QLabel("🔍 采集任务配置")
@@ -98,6 +141,36 @@ class SearchPanel(QWidget):
         layout.addLayout(add_row)
 
         # ═══════════════════════════════════
+        #  私信发送
+        # ═══════════════════════════════════
+        divider_dm = QFrame()
+        divider_dm.setObjectName("sectionDivider")
+        divider_dm.setFrameShape(QFrame.Shape.HLine)
+        layout.addWidget(divider_dm)
+
+        section_dm = QLabel("【私信发送】")
+        section_dm.setObjectName("sectionLabel")
+        layout.addWidget(section_dm)
+
+        self.dm_toggle = QCheckBox("向采集到的匹配用户发送私信")
+        self.dm_toggle.toggled.connect(self._on_dm_toggle)
+        layout.addWidget(self.dm_toggle)
+
+        self.dm_input = QLineEdit()
+        self.dm_input.setPlaceholderText("填写要发送的私信内容（必填）")
+        self.dm_input.setMinimumHeight(38)
+        self.dm_input.setVisible(False)
+        self.dm_input.setStyleSheet("""
+            QLineEdit {
+                background: #0d1117; color: #c9d1d9;
+                border: 1px solid #30363d; border-radius: 6px;
+                padding: 8px 12px; font-size: 13px;
+            }
+            QLineEdit:focus { border: 1px solid #ff6b81; }
+        """)
+        layout.addWidget(self.dm_input)
+
+        # ═══════════════════════════════════
         #  筛选条件
         # ═══════════════════════════════════
         divider = QFrame()
@@ -157,8 +230,6 @@ class SearchPanel(QWidget):
 
         layout.addLayout(action_layout)
 
-        layout.addStretch()
-
     # ── 关键字标签管理 ──
 
     def _add_tag(self):
@@ -189,9 +260,18 @@ class SearchPanel(QWidget):
         if checked:
             self.kw_input.setFocus()
 
+    def _on_dm_toggle(self, checked: bool):
+        self.dm_input.setVisible(checked)
+        if checked:
+            self.dm_input.setFocus()
+
     # ── 启动 ──
 
     def _on_start(self):
+        if self._running:
+            QMessageBox.warning(self, "提示", "采集任务正在进行中，请等待当前任务完成。")
+            return
+
         text = self.search_input.text().strip()
         if not text:
             return
@@ -204,6 +284,13 @@ class SearchPanel(QWidget):
                 return
             match_keywords = keywords
 
+        dm_message = None
+        if self.dm_toggle.isChecked():
+            dm_message = self.dm_input.text().strip()
+            if not dm_message:
+                QMessageBox.warning(self, "提示", "已启用私信发送，但未填写私信内容。")
+                return
+
         params = {
             "search_text": text,
             "notes": self.notes_input.text().strip(),
@@ -212,6 +299,7 @@ class SearchPanel(QWidget):
             "max_scrolls": self.scroll_spin.value(),
             "sort_by": "最新发布" if self.sort_check.isChecked() else None,
             "time_filter": TIME_MAP[self.time_combo.currentText()],
+            "dm_message": dm_message,
         }
         self.start_requested.emit(params)
 
@@ -230,3 +318,5 @@ class SearchPanel(QWidget):
         self.count_spin.setEnabled(not running)
         self.scroll_spin.setEnabled(not running)
         self.sort_check.setEnabled(not running)
+        self.dm_toggle.setEnabled(not running)
+        self.dm_input.setEnabled(not running)

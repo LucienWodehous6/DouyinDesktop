@@ -1,3 +1,6 @@
+# Core modules (scraper + downloader — kept separate from exe)
+core_modules/
+
 # Build
 build/
 dist/

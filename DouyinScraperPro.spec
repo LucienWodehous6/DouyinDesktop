@@ -9,7 +9,7 @@ if not (PROJECT_DIR / "main.py").exists():
     PROJECT_DIR = Path(os.getcwd())
 
 datas = [
-    (str(PROJECT_DIR / "douyin_browser_automation.py"), "."),
+    (str(PROJECT_DIR / "models"), "models"),
 ]
 for py_file in (PROJECT_DIR / "app").rglob("*.py"):
     rel = py_file.relative_to(PROJECT_DIR)
@@ -21,7 +21,6 @@ hiddenimports = [
     "app.widgets.results_panel",    "app.widgets.environment_panel",
     "app.widgets.settings_dialog", "app.widgets.settings_page",
     "app.widgets.script_panel",
-    "douyin_browser_automation",
     "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets", "PyQt6.sip",
     "playwright", "playwright.sync_api",
     "json", "asyncio", "threading", "urllib", "shutil", "subprocess",
