@@ -131,7 +131,7 @@ class SceneWidget(QGroupBox):
         self.video_status_label.setVisible(False)
         layout.addWidget(self.video_status_label)
 
-        self.play_video_btn = QPushButton("▶ 播放视频")
+        self.play_video_btn = QPushButton("[ 播放视频 ]")
         self.play_video_btn.setObjectName("smallBtn")
         self.play_video_btn.setVisible(False)
         self.play_video_btn.clicked.connect(self._play_video)
@@ -202,7 +202,7 @@ class SceneWidget(QGroupBox):
         if not self.generated_image_path:
             return
         menu = QMenu(self)
-        save_action = menu.addAction("💾 另存为...")
+        save_action = menu.addAction("另存为……")
         action = menu.exec(self.img_label.mapToGlobal(pos))
         if action == save_action:
             default_name = f"scene_{self.scene_index + 1}.png"
@@ -253,7 +253,7 @@ class VideoCreationPanel(QWidget):
         script_row.addWidget(QLabel("选择剧本:"))
         self.script_combo = QComboBox()
         self.script_combo.setMinimumWidth(350)
-        self.script_combo.setPlaceholderText("选择已保存的剧本...")
+        self.script_combo.setPlaceholderText("选择已保存的剧本……")
         script_row.addWidget(self.script_combo)
         script_row.addStretch()
 
@@ -404,7 +404,7 @@ class VideoCreationPanel(QWidget):
         system_prompt = self._load_storyboard_prompt()
 
         self.split_btn.setEnabled(False)
-        self.split_btn.setText("拆分中...")
+        self.split_btn.setText("拆分中……")
 
         class SplitWorker(QThread):
             result_signal = pyqtSignal(str)
@@ -644,7 +644,7 @@ class VideoCreationPanel(QWidget):
             return
 
         sw.gen_img_btn.setEnabled(False)
-        sw.gen_img_btn.setText("生成中...")
+        sw.gen_img_btn.setText("生成中……")
         sw.img_status.setText("⏳")
         sw.img_status.setStyleSheet("color: #ffa502; font-size: 11px;")
 
@@ -807,8 +807,8 @@ class VideoCreationPanel(QWidget):
     def _generate_scene_video(self, scene_index: int):
         sw = self._scene_widgets[scene_index]
         sw.gen_video_btn.setEnabled(False)
-        sw.gen_video_btn.setText("生成中...")
-        sw.video_status_label.setText("⏳ 视频生成中...")
+        sw.gen_video_btn.setText("生成中……")
+        sw.video_status_label.setText("⏳ 视频生成中……")
         sw.video_status_label.setStyleSheet("color: #ffa502; font-size: 11px;")
         sw.video_status_label.setVisible(True)
 

@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QSpinBox, QComboBox,
     QGridLayout, QCheckBox, QFrame, QMessageBox, QScrollArea,
 )
+from app.widgets.common_widgets import CLineEdit
 
 TIME_MAP = {"不限": None, "一天内": "一天内", "一周内": "一周内", "半年内": "半年内"}
 
@@ -105,13 +106,13 @@ class SearchPanel(QWidget):
         section1.setObjectName("sectionLabel")
         layout.addWidget(section1)
 
-        self.search_input = QLineEdit()
+        self.search_input = CLineEdit()
         self.search_input.setPlaceholderText("输入搜索关键词，如'核桃手串'")
         self.search_input.setMinimumHeight(44)
         layout.addWidget(self.search_input)
 
         # 备注
-        self.notes_input = QLineEdit()
+        self.notes_input = CLineEdit()
         self.notes_input.setPlaceholderText("任务备注（可选，方便后续查找）")
         self.notes_input.setMinimumHeight(36)
         layout.addWidget(self.notes_input)
@@ -138,8 +139,8 @@ class SearchPanel(QWidget):
         add_row = QHBoxLayout()
         add_row.setSpacing(8)
 
-        self.kw_input = QLineEdit()
-        self.kw_input.setPlaceholderText("输入关键字后回车或点 + 添加")
+        self.kw_input = CLineEdit()
+        self.kw_input.setPlaceholderText("输入关键字后回车或点击 + 添加")
         self.kw_input.setMinimumHeight(38)
         self.kw_input.setVisible(False)
         self.kw_input.returnPressed.connect(self._add_tag)
@@ -182,8 +183,8 @@ class SearchPanel(QWidget):
         dm_add_row = QHBoxLayout()
         dm_add_row.setSpacing(8)
 
-        self.dm_msg_input = QLineEdit()
-        self.dm_msg_input.setPlaceholderText("输入私信内容后回车或点 + 添加（每条最多20字）")
+        self.dm_msg_input = CLineEdit()
+        self.dm_msg_input.setPlaceholderText("输入私信内容后回车或点击 + 添加（每条最多20字）")
         self.dm_msg_input.setMinimumHeight(38)
         self.dm_msg_input.setMaxLength(20)
         self.dm_msg_input.setVisible(False)
@@ -244,25 +245,25 @@ class SearchPanel(QWidget):
         layout.addSpacing(8)
         action_layout = QHBoxLayout()
 
-        self.save_btn = QPushButton("💾 保存配置")
+        self.save_btn = QPushButton("[ 保存配置 ]")
         self.save_btn.setObjectName("smallBtn")
         self.save_btn.clicked.connect(self._save_config)
         action_layout.addWidget(self.save_btn)
 
-        self.load_btn = QPushButton("📂 读取配置")
+        self.load_btn = QPushButton("[ 读取配置 ]")
         self.load_btn.setObjectName("smallBtn")
         self.load_btn.clicked.connect(self._load_config)
         action_layout.addWidget(self.load_btn)
 
         action_layout.addStretch()
 
-        self.stop_btn = QPushButton("⏹  停止采集")
+        self.stop_btn = QPushButton("[ 停止采集 ]")
         self.stop_btn.setObjectName("dangerBtn")
         self.stop_btn.setVisible(False)
         self.stop_btn.clicked.connect(self.stop_requested.emit)
         action_layout.addWidget(self.stop_btn)
 
-        self.start_btn = QPushButton("▶  开始采集")
+        self.start_btn = QPushButton("[ 开始采集 ]")
         self.start_btn.setObjectName("primaryBtn")
         self.start_btn.clicked.connect(self._on_start)
         action_layout.addWidget(self.start_btn)

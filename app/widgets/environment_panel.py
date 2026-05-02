@@ -231,13 +231,13 @@ class EnvironmentPanel(QWidget):
         self.login_btn.setVisible(False)
         btn_layout.addWidget(self.login_btn)
 
-        self.complete_login_btn = QPushButton("✅ 完成登录，保存 Cookie")
+        self.complete_login_btn = QPushButton("完成登录，保存 Cookie")
         self.complete_login_btn.setObjectName("primaryBtn")
         self.complete_login_btn.clicked.connect(self._complete_login)
         self.complete_login_btn.setVisible(False)
         btn_layout.addWidget(self.complete_login_btn)
 
-        self.recheck_btn = QPushButton("🔄 重新检查")
+        self.recheck_btn = QPushButton("重新检查")
         self.recheck_btn.setObjectName("smallBtn")
         self.recheck_btn.clicked.connect(self.check_all)
         btn_layout.addWidget(self.recheck_btn)

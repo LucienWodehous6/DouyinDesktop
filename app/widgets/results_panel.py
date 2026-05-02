@@ -40,7 +40,7 @@ class ResultsPanel(QWidget):
         if self._task_store:
             self.task_combo = QComboBox()
             self.task_combo.setMinimumWidth(280)
-            self.task_combo.setPlaceholderText("选择历史任务...")
+            self.task_combo.setPlaceholderText("选择历史任务……")
             self.task_combo.currentIndexChanged.connect(self._on_task_selected)
             title_row.addWidget(self.task_combo)
 

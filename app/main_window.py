@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
     # ══════════════════════════════════════════
 
     def _init_ui(self):
-        self.setWindowTitle("Douyin Scraper Pro")
+        self.setWindowTitle("抖音采集助手")
         self.setFixedSize(1280, 820)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowMaximizeButtonHint)
 
@@ -76,7 +76,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.setSpacing(4)
 
         # Logo
-        logo = QLabel("  ◈  Douyin\n     Scraper Pro")
+        logo = QLabel("  ◈  抖音\n     采集助手")
         logo.setObjectName("sidebarLogo")
         logo.setMinimumHeight(60)
         sidebar_layout.addWidget(logo)
@@ -286,8 +286,8 @@ class MainWindow(QMainWindow):
 
     def _show_about(self):
         QMessageBox.about(
-            self, "关于 Douyin Scraper Pro",
-            "<h3>Douyin Scraper Pro v2.0</h3>"
+            self, "关于 抖音采集助手",
+            "<h3>抖音采集助手 v2.0</h3>"
             "<p>基于 PyQt6 + Playwright 的抖音数据采集桌面应用。</p>"
             "<p>零 class 依赖 · 纯文本 DOM 定位 · 防反爬</p>"
         )

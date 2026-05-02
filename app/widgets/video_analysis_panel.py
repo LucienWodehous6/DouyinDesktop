@@ -252,7 +252,7 @@ class VideoAnalysisPanel(QWidget):
         self.extract_btn.clicked.connect(self._start_extract)
         url_row.addWidget(self.extract_btn)
 
-        self.stop_btn = QPushButton("⏹ 停止")
+        self.stop_btn = QPushButton("[ 停止 ]")
         self.stop_btn.setObjectName("dangerBtn")
         self.stop_btn.setMinimumHeight(36)
         self.stop_btn.setMinimumWidth(80)

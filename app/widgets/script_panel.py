@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QMessageBox, QInputDialog, QCheckBox, QMenu,
     QScrollArea,
 )
+from app.widgets.common_widgets import CTextEdit
 
 
 
@@ -224,7 +225,7 @@ class ScriptPanel(QWidget):
 
         self.task_combo = QComboBox()
         self.task_combo.setMinimumWidth(300)
-        self.task_combo.setPlaceholderText("选择历史采集任务...")
+        self.task_combo.setPlaceholderText("选择历史采集任务……")
         task_row.addWidget(self.task_combo)
         task_row.addStretch()
         layout.addLayout(task_row)
@@ -326,7 +327,7 @@ class ScriptPanel(QWidget):
 
         self.result_label = QLabel()
         self.result_label.setObjectName("resultLabel")
-        self.result_label.setText("AI 生成的剧本将显示在这里...")
+        self.result_label.setText("AI 生成的剧本将显示在这里……")
         self.result_label.setStyleSheet("""
             QLabel#resultLabel {
                 background: #0d1117;
@@ -344,7 +345,7 @@ class ScriptPanel(QWidget):
 
         result_btns = QHBoxLayout()
         result_btns.addStretch()
-        self.save_btn = QPushButton("💾 保存结果")
+        self.save_btn = QPushButton("[ 保存结果 ]")
         self.save_btn.setObjectName("smallBtn")
         self.save_btn.clicked.connect(self._save_script)
         self.save_btn.setEnabled(False)
@@ -511,10 +512,10 @@ class ScriptPanel(QWidget):
             return
 
         self.gen_btn.setEnabled(False)
-        self.gen_btn.setText("生成中...")
+        self.gen_btn.setText("生成中……")
         if hasattr(self, "_result_buf"):
             self._result_buf = ""
-        self.result_label.setText("AI 正在生成剧本，请稍候...")
+        self.result_label.setText("AI 正在生成剧本，请稍候……")
 
         self._worker = ScriptWorker(
             api_key, api_base, model, full_prompt, system_prompt,
@@ -684,7 +685,7 @@ class ScriptPanel(QWidget):
         self.save_btn.setEnabled(False)
         if hasattr(self, "_result_buf"):
             self._result_buf = ""
-        self.result_label.setText("AI 正在修改剧本，请稍候...")
+        self.result_label.setText("AI 正在修改剧本，请稍候……")
 
         self._worker = ScriptWorker(
             api_key, api_base, model, modify_prompt, "",
