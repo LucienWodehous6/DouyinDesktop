@@ -38,13 +38,12 @@ def _extract_image_urls(data: dict) -> list:
 
 
 class CdpSettingsTab(QWidget):
-    """CDP 地址 + Cookie 配置"""
+    """连接配置：CDP 地址 + Cookie + 存储路径"""
     settings_changed = pyqtSignal()
 
     def __init__(self, settings: dict):
         super().__init__()
         self.settings = settings
-        self._test_workers = []  # 保持引用防止 GC 回收
         self._init_ui()
 
     def _init_ui(self):
@@ -119,31 +118,81 @@ class CdpSettingsTab(QWidget):
         mode_layout.addWidget(self.cdp_mode)
         layout.addWidget(mode_group)
 
-        # ═══════════════ AI 生成配置 ═══════════════
+        layout.addStretch()
+
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+
+    def _save(self):
+        self.settings["cdp_url"] = self.cdp_input.text().strip()
+        self.settings["cookie_file"] = self.cookie_input.text().strip() or None
+        self.settings["storage_path"] = self.storage_input.text().strip()
+        self.settings["use_cdp"] = self.cdp_mode.isChecked()
+        self.settings_changed.emit()
+
+    def get_cdp_url(self) -> str:
+        return self.cdp_input.text().strip()
+
+    def _browse_cookie(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择 Cookie", "", "JSON (*.json)")
+        if path:
+            self.cookie_input.setText(path)
+            self._save()
+
+    def _browse_storage(self):
+        path = QFileDialog.getExistingDirectory(self, "选择存储目录")
+        if path:
+            self.storage_input.setText(path)
+            self._save()
+
+
+class ApiSettingsTab(QWidget):
+    """密钥配置：所有 AI API 密钥"""
+    settings_changed = pyqtSignal()
+
+    def __init__(self, settings: dict):
+        super().__init__()
+        self.settings = settings
+        self._test_workers = []
+        self._init_ui()
+
+    def _init_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(16)
+
         # 文字大模型
-        self._build_ai_group(layout, "📝 文字大模型设置", "openai_text",
+        self._build_ai_group(layout, "文字大模型", "openai_text",
                              "https://api.deepseek.com/v1", "deepseek-chat", "text")
 
         # 图片大模型
-        self._build_ai_group(layout, "🖼️ 图片大模型设置", "openai_image",
+        self._build_ai_group(layout, "图片大模型", "openai_image",
                              "https://api.siliconflow.cn/v1", "Kwai-Kolors/Kolors", "image")
 
         # 视频大模型
-        self._build_ai_group(layout, "🎬 视频大模型设置", "openai_video",
+        self._build_ai_group(layout, "视频大模型", "openai_video",
                              "https://api.siliconflow.cn/v1", "Wan-AI/Wan2.2-I2V-A14B", "video")
 
-        # 抖音视频下载密钥
-        dl_group = QGroupBox("📥 抖音视频下载")
-        dl_form = QFormLayout(dl_group)
-        dl_form.setSpacing(12)
-        dl_key = "douyin_api_key"
-        dl_input = QLineEdit(self.settings.get(dl_key, ""))
-        dl_input.setPlaceholderText("用于语音转文字的 API Key")
-        dl_input.setEchoMode(QLineEdit.EchoMode.Password)
-        dl_input.setMinimumHeight(36)
-        dl_input.textChanged.connect(lambda t, b=dl_input, k=dl_key: self._on_ai_field_change(b, k))
-        dl_form.addRow("API 密钥:", dl_input)
-        layout.addWidget(dl_group)
+        # 语音转文字
+        stt_group = QGroupBox("语音转文字")
+        stt_form = QFormLayout(stt_group)
+        stt_form.setSpacing(12)
+        stt_key = "douyin_api_key"
+        stt_input = QLineEdit(self.settings.get(stt_key, ""))
+        stt_input.setPlaceholderText("用于视频语音转文字的 API Key")
+        stt_input.setEchoMode(QLineEdit.EchoMode.Password)
+        stt_input.setMinimumHeight(36)
+        stt_input.textChanged.connect(lambda t, b=stt_input, k=stt_key: self._on_ai_field_change(b, k))
+        stt_form.addRow("API 密钥:", stt_input)
+        layout.addWidget(stt_group)
 
         layout.addStretch()
 
@@ -159,8 +208,6 @@ class CdpSettingsTab(QWidget):
         base_key = f"{prefix}_api_base"
         key_key = f"{prefix}_api_key"
         model_key = f"{prefix}_model"
-        fmt_key = f"{prefix}_format"
-        path_key = f"{prefix}_json_path"
 
         base_input = QLineEdit(self.settings.get(base_key, default_base))
         base_input.setPlaceholderText(default_base)
@@ -184,7 +231,7 @@ class CdpSettingsTab(QWidget):
         # 测试按钮
         test_row = QHBoxLayout()
         test_row.addStretch()
-        test_btn = QPushButton("🔌 测试连接")
+        test_btn = QPushButton("[ 测试连接 ]")
         test_btn.setObjectName("smallBtn")
         test_status = QLabel("")
         test_status.setStyleSheet("color: #8b949e; font-size: 12px;")
@@ -206,6 +253,9 @@ class CdpSettingsTab(QWidget):
         self.settings[key] = "openai" if combo.currentIndex() == 0 else "custom"
         self._save()
 
+    def _save(self):
+        self.settings_changed.emit()
+
     def _test_ai_api(self, base_input, key_input, model_input, test_btn, test_status, model_type="text", prefix=""):
         base = base_input.text().strip()
         key = key_input.text().strip()
@@ -223,8 +273,8 @@ class CdpSettingsTab(QWidget):
             return
 
         test_btn.setEnabled(False)
-        test_btn.setText("测试中...")
-        test_status.setText("⏳ 正在连接...")
+        test_btn.setText("测试中…")
+        test_status.setText("正在连接...")
         test_status.setStyleSheet("color: #ffa502; font-size: 12px;")
 
         class TestWorker(QThread):
@@ -321,7 +371,7 @@ class CdpSettingsTab(QWidget):
     def _on_test_result(self, success: bool, message: str, test_btn, test_status):
         print(f"[测试] 回调 success={success} message={message[:100]}")
         test_btn.setEnabled(True)
-        test_btn.setText("🔌 测试连接")
+        test_btn.setText("[ 测试连接 ]")
         if success:
             test_status.setText("✅ " + message.split("\n")[0])
             test_status.setStyleSheet("color: #2ed573; font-size: 12px;")
@@ -386,6 +436,11 @@ class SettingsPage(QWidget):
         # CDP/Cookie tab
         self.cdp_tab = CdpSettingsTab(self.settings)
         tabs.addTab(self.cdp_tab, "连接配置")
+
+        # API Keys tab
+        self.api_tab = ApiSettingsTab(self.settings)
+        self.api_tab.settings_changed.connect(self._on_settings_changed)
+        tabs.addTab(self.api_tab, "密钥配置")
 
         layout.addWidget(tabs)
 

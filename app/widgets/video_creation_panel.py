@@ -312,7 +312,7 @@ class VideoCreationPanel(QWidget):
         self.add_scene_btn.clicked.connect(self._add_scene)
         action_row.addWidget(self.add_scene_btn)
 
-        self.create_video_btn = QPushButton("🎬 创作视频")
+        self.create_video_btn = QPushButton("[ 创作视频 ]")
         self.create_video_btn.setObjectName("primaryBtn")
         self.create_video_btn.clicked.connect(self._create_video)
         self.create_video_btn.setEnabled(False)
@@ -932,17 +932,97 @@ class VideoCreationPanel(QWidget):
     # ═══════════════ 最终视频创作 ═══════════════
 
     def _create_video(self):
-        msg = (
-            "视频创作流程：\n\n"
-            "1. 所有分镜图片已生成 ✅\n"
-            "2. 点击各分镜的「生成视频」按钮生成视频片段\n"
-            "3. 首个分镜：图生视频\n"
-            "4. 后续分镜：首尾帧参考图方式（上一分镜最后一帧 → 当前分镜首帧）\n\n"
-            "所有视频生成后，将自动拼接为完整视频。"
-        )
-        QMessageBox.information(self, "视频创作", msg)
+        """用 FFmpeg 将所有分镜视频片段拼接为一个完整视频"""
+        video_segments = []
+        for sw in self._scene_widgets:
+            if sw.generated_video_path and os.path.exists(sw.generated_video_path):
+                video_segments.append(sw.generated_video_path)
 
-        # 自动触发全部分镜视频生成
-        for i, sw in enumerate(self._scene_widgets):
-            if sw.generated_image_path and not sw.generated_video_path:
-                self._generate_scene_video(i)
+        if not video_segments:
+            QMessageBox.warning(self, "提示", "没有任何视频片段可拼接，请先生成视频。")
+            return
+
+        if len(video_segments) == 1:
+            QMessageBox.information(self, "提示", "只有一个视频片段，无需拼接。")
+            return
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self, "保存完整视频", "完整视频.mp4", "MP4 (*.mp4)"
+        )
+        if not output_path:
+            return
+
+        self.create_video_btn.setEnabled(False)
+        self.create_video_btn.setText("拼接中……")
+
+        class ConcatWorker(QThread):
+            finished_signal = pyqtSignal(str)
+            error_signal = pyqtSignal(str)
+            progress_signal = pyqtSignal(int)
+
+            def __init__(self, segments, output_path):
+                super().__init__()
+                self.segments = segments
+                self.output_path = output_path
+
+            def run(self):
+                try:
+                    import subprocess
+                    import tempfile
+
+                    # 方法：用 FFmpeg concat demuxer（各段编码必须一致）
+                    # 先创建临时文件列表
+                    list_path = os.path.join(tempfile.gettempdir(), "dy_concat_list.txt")
+                    with open(list_path, "w", encoding="utf-8") as f:
+                        for seg in self.segments:
+                            f.write(f"file '{seg}'\n")
+
+                    self.progress_signal.emit(30)
+                    # 执行 FFmpeg concat
+                    result = subprocess.run(
+                        [
+                            "ffmpeg", "-y",
+                            "-f", "concat", "-safe", "0",
+                            "-i", list_path,
+                            "-c", "copy",
+                            self.output_path
+                        ],
+                        capture_output=True, timeout=300
+                    )
+                    os.remove(list_path)
+
+                    self.progress_signal.emit(90)
+
+                    if result.returncode != 0:
+                        raise RuntimeError(result.stderr.decode("utf-8", errors="replace"))
+
+                    self.progress_signal.emit(100)
+                    self.finished_signal.emit(self.output_path)
+                except subprocess.TimeoutExpired:
+                    self.error_signal.emit("视频拼接超时，请检查 FFmpeg 是否安装。")
+                except Exception as e:
+                    self.error_signal.emit(f"拼接失败: {e}")
+
+        def on_done(path):
+            self.create_video_btn.setEnabled(True)
+            self.create_video_btn.setText("创作视频")
+            QMessageBox.information(self, "创作完成", f"视频已保存到:\n{path}")
+            # 用系统播放器打开
+            if sys.platform == "darwin":
+                subprocess.run(["open", path])
+            elif sys.platform == "win32":
+                os.startfile(path)
+            else:
+                subprocess.run(["xdg-open", path])
+
+        def on_error(msg):
+            self.create_video_btn.setEnabled(True)
+            self.create_video_btn.setText("创作视频")
+            QMessageBox.critical(self, "拼接失败", msg)
+
+        worker = ConcatWorker(video_segments, output_path)
+        worker.finished_signal.connect(on_done)
+        worker.error_signal.connect(on_error)
+        worker.progress_signal.connect(self.progress_bar.setValue)
+        self._workers.append(worker)
+        worker.start()
