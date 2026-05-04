@@ -1,4 +1,4 @@
-"""后台采集线程 — 在 QThread 中运行 douyin_browser_automation，信号与主窗口通信"""
+"""后台采集线程 — 在 QThread 中运行浏览器自动化模块，信号与主窗口通信"""
 
 import io
 import sys
@@ -11,7 +11,7 @@ from contextlib import redirect_stdout, redirect_stderr
 from PyQt6.QtCore import QThread, pyqtSignal
 
 
-class DouyinWorker(QThread):
+class DataWorker(QThread):
     log_signal = pyqtSignal(str, str)       # (message, level)
     progress_signal = pyqtSignal(int)        # 0-100
     finished_signal = pyqtSignal(str)        # result_file_path
@@ -60,7 +60,7 @@ class DouyinWorker(QThread):
             self.error_signal.emit(str(e))
 
     def _run_automation(self):
-        """动态导入 douyin_browser_automation — 从 EXE_DIR/core_modules/ 加载（打包后）
+        """动态导入浏览器自动化模块 — 从 EXE_DIR/core_modules/ 加载（打包后）
         开发模式回退到项目根目录 core_modules/。核心脚本不打包进应用，保护代码安全。"""
 
         # 获取脚本所在目录
@@ -75,10 +75,10 @@ class DouyinWorker(QThread):
             sys.path.insert(0, scripts_dir)
 
         try:
-            import douyin_browser_automation as dba
+            import browser_automation as dba
         except ImportError:
             self.error_signal.emit(
-                f"未找到核心脚本！请将 douyin_browser_automation.py 放入：\n{scripts_dir}"
+                f"未找到核心脚本！请将 browser_automation.py 放入：\n{scripts_dir}"
             )
             return
 

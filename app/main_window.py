@@ -19,7 +19,7 @@ from app.widgets.progress_panel import ProgressPanel
 from app.widgets.results_panel import ResultsPanel
 from app.widgets.script_panel import ScriptPanel
 from app.widgets.settings_page import SettingsPage
-from app.worker import DouyinWorker
+from app.worker import DataWorker
 from app.task_store import TaskStore
 from app.styles import MODERN_THEME
 from app.theme import NEON_RED, NEON_GREEN, NEON_BLUE
@@ -43,7 +43,7 @@ class SidebarButton(QPushButton):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.worker: DouyinWorker | None = None
+        self.worker: DataWorker | None = None
         self.settings = self._load_settings()
         storage = self.settings.get("storage_path", "")
         self.task_store = TaskStore(storage if storage else None)
@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
     # ══════════════════════════════════════════
 
     def _init_ui(self):
-        self.setWindowTitle("抖音采集助手")
+        self.setWindowTitle("数据采集助手")
         self.setFixedSize(1280, 820)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowMaximizeButtonHint)
 
@@ -76,7 +76,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.setSpacing(4)
 
         # Logo
-        logo = QLabel("  ◈  抖音\n     采集助手")
+        logo = QLabel("  ◈  数据\n     采集助手")
         logo.setObjectName("sidebarLogo")
         logo.setMinimumHeight(60)
         sidebar_layout.addWidget(logo)
@@ -89,7 +89,7 @@ class MainWindow(QMainWindow):
             ("🔍", "搜索采集"),
             ("🎬", "剧本生成"),
             ("🎥", "视频创作"),
-            ("📈", "抖音视频分析"),
+            ("📈", "视频分析"),
             ("📟", "运行日志"),
             ("📊", "结果查看"),
         ]
@@ -221,7 +221,7 @@ class MainWindow(QMainWindow):
 
         # 关于
         about_menu = menubar.addMenu("关于")
-        act_about = QAction("关于 Douyin Scraper Pro", self)
+        act_about = QAction("关于 Data Scraper Pro", self)
         act_about.triggered.connect(self._show_about)
         about_menu.addAction(act_about)
 
@@ -253,7 +253,7 @@ class MainWindow(QMainWindow):
             "openai_text_api_base": "https://api.deepseek.com/v1",
             "openai_text_api_key": "",
             "openai_text_model": "deepseek-chat",
-            "douyin_api_key": "",
+            "video_api_key": "",
             "openai_image_api_base": "https://api.siliconflow.cn/v1",
             "openai_image_api_key": "",
             "openai_image_model": "Kwai-Kolors/Kolors",
@@ -286,9 +286,9 @@ class MainWindow(QMainWindow):
 
     def _show_about(self):
         QMessageBox.about(
-            self, "关于 抖音采集助手",
-            "<h3>抖音采集助手 v2.0</h3>"
-            "<p>基于 PyQt6 + Playwright 的抖音数据采集桌面应用。</p>"
+            self, "关于 数据采集助手",
+            "<h3>数据采集助手 v2.0</h3>"
+            "<p>基于 PyQt6 + Playwright 的数据采集桌面应用。</p>"
             "<p>零 class 依赖 · 纯文本 DOM 定位 · 防反爬</p>"
         )
 
@@ -338,7 +338,7 @@ class MainWindow(QMainWindow):
         )
         self.progress_panel.log(f"📋 任务 ID: {task_id}", "INFO")
 
-        self.worker = DouyinWorker(
+        self.worker = DataWorker(
             task_id=task_id,
             task_store=self.task_store,
             search_text=params["search_text"],

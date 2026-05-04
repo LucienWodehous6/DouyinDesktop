@@ -1,4 +1,4 @@
-"""抖音视频分析面板 — 提取视频文案 + AI 仿写生成"""
+"""视频分析面板 — 提取视频文案 + AI 仿写生成"""
 
 import os
 import sys
@@ -33,14 +33,14 @@ class ExtractWorker(QThread):
             self.progress_signal.emit(10)
 
             api_key = (
-                self.settings.get("douyin_api_key") or
+                self.settings.get("video_api_key") or
                 self.settings.get("openai_text_api_key") or
                 self.settings.get("openai_api_key") or
                 os.environ.get("DOUYIN_API_KEY") or
                 os.environ.get("API_KEY", "")
             )
             if not api_key:
-                self.error_signal.emit("未配置 API 密钥。请在设置 → 抖音视频下载 中配置密钥。")
+                self.error_signal.emit("未配置 API 密钥。请在设置 → 语音转文字 中配置密钥。")
                 return
 
             import douyin_downloader as dld
@@ -128,14 +128,14 @@ class GenerateWorker(QThread):
                 # 兜底：内置基础提示词
                 system_prompt = (
                     "你是一个专业的短视频文案策划师。请根据参考视频文案的风格，"
-                    "为用户指定的产品/服务创作一条类似风格的抖音口播文案。"
+                    "为用户指定的产品/服务创作一条类似风格的视频口播文案。"
                     "直接输出可用的口播文案，不要解释分析过程。"
                 )
 
             user_prompt = (
                 f"## 参考视频文案\n\n{self.reference_copy}\n\n"
                 f"## 我的产品/服务\n\n{self.product_info}\n\n"
-                f"请根据以上参考文案的风格，为我的产品/服务创作一条类似风格的抖音口播文案。"
+                f"请根据以上参考文案的风格，为我的产品/服务创作一条类似风格的视频口播文案。"
             )
 
             self.log_signal.emit(f"📡 API: {api_base} | 模型: {model}")
@@ -205,7 +205,7 @@ class GenerateWorker(QThread):
 
 
 class VideoAnalysisPanel(QWidget):
-    """抖音视频分析页面"""
+    """视频分析页面"""
 
     def __init__(self, task_store=None, settings: dict | None = None, parent=None):
         super().__init__(parent)
@@ -221,11 +221,11 @@ class VideoAnalysisPanel(QWidget):
         layout.setSpacing(10)
 
         # ── 标题 ──
-        title = QLabel("📈 抖音视频分析")
+        title = QLabel("📈 视频分析")
         title.setStyleSheet("font-size: 18px; font-weight: bold; color: #f0f6fc;")
         layout.addWidget(title)
 
-        desc = QLabel("粘贴抖音视频链接 → 提取口播文案 → 输入你的产品信息 → AI 生成同风格文案")
+        desc = QLabel("粘贴视频链接 → 提取口播文案 → 输入你的产品信息 → AI 生成同风格文案")
         desc.setStyleSheet("color: #8b949e; font-size: 13px;")
         desc.setWordWrap(True)
         layout.addWidget(desc)
@@ -233,13 +233,13 @@ class VideoAnalysisPanel(QWidget):
         layout.addSpacing(4)
 
         # ── 步骤 1: 视频链接 + 提取 ──
-        input_group = QGroupBox("📎 步骤 1: 提取抖音视频口播文案")
+        input_group = QGroupBox("📎 步骤 1: 提取视频口播文案")
         input_group.setStyleSheet(self._group_style())
         input_layout = QVBoxLayout(input_group)
 
         url_row = QHBoxLayout()
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("粘贴抖音视频链接，例如: https://v.douyin.com/xxxxx/")
+        self.url_input.setPlaceholderText("粘贴视频链接，例如: https://v.douyin.com/xxxxx/")
         self.url_input.setMinimumHeight(36)
         self.url_input.setStyleSheet(self._input_style())
         self.url_input.returnPressed.connect(self._start_extract)
@@ -347,7 +347,7 @@ class VideoAnalysisPanel(QWidget):
         layout.addWidget(splitter, 1)
 
         # 底部状态
-        self.status_label = QLabel("● 就绪 — 请粘贴抖音视频链接")
+        self.status_label = QLabel("● 就绪 — 请粘贴视频链接")
         self.status_label.setStyleSheet("color: #8b949e; font-size: 12px; padding: 4px 0;")
         layout.addWidget(self.status_label)
 
@@ -427,7 +427,7 @@ class VideoAnalysisPanel(QWidget):
     def _start_extract(self):
         url = self.url_input.text().strip()
         if not url:
-            QMessageBox.warning(self, "提示", "请先输入抖音视频链接。")
+            QMessageBox.warning(self, "提示", "请先输入视频链接。")
             return
 
         self.copy_edit.clear()

@@ -1,4 +1,4 @@
-"""环境检查面板 — 检测 Chrome + CDP，自动启动，抖音登录"""
+"""环境检查面板 — 检测 Chrome + CDP，自动启动，账号登录"""
 
 import os
 import sys
@@ -91,8 +91,8 @@ def start_chrome_cdp(chrome_path: str, port: int = 9222, user_data_dir: str = ""
         return False
 
 
-def open_douyin_login(cdp_url: str):
-    """通过 Playwright CDP 打开抖音首页"""
+def open_login_page(cdp_url: str):
+    """通过 Playwright CDP 打开首页"""
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
@@ -122,15 +122,15 @@ def extract_cookies_cdp(cdp_url: str) -> list | None:
             if browser.contexts:
                 ctx = browser.contexts[0]
                 all_cookies = ctx.cookies()
-                # 过滤 douyin.com 相关
-                douyin_cookies = [
+                # 过滤目标站点 Cookie
+                target_cookies = [
                     c for c in all_cookies
                     if "douyin.com" in c.get("domain", "")
                 ]
-                if douyin_cookies:
+                if target_cookies:
                     # 转为可序列化格式
                     result = []
-                    for c in douyin_cookies:
+                    for c in target_cookies:
                         result.append({
                             "name": c["name"],
                             "value": c["value"],
@@ -225,7 +225,7 @@ class EnvironmentPanel(QWidget):
         self.start_cdp_btn.setVisible(False)
         btn_layout.addWidget(self.start_cdp_btn)
 
-        self.login_btn = QPushButton("🔑 登录抖音")
+        self.login_btn = QPushButton("🔑 登录账号")
         self.login_btn.setObjectName("primaryBtn")
         self.login_btn.clicked.connect(self._start_login)
         self.login_btn.setVisible(False)
@@ -247,7 +247,7 @@ class EnvironmentPanel(QWidget):
 
         # ═══════════════ 提示 ═══════════════
         self.hint = QLabel(
-            "步骤：① 启动 Chrome CDP → ② 登录抖音 → ③ 完成登录保存 Cookie"
+            "步骤：① 启动 Chrome CDP → ② 登录账号 → ③ 完成登录保存 Cookie"
         )
         self.hint.setObjectName("hintLabel")
         self.hint.setWordWrap(True)
@@ -360,27 +360,27 @@ class EnvironmentPanel(QWidget):
     # ═══════════════ 登录流程 ═══════════════
 
     def _start_login(self):
-        """打开抖音首页，让用户手动登录"""
+        """打开首页，让用户手动登录"""
         cdp_url = self.cdp_input.text().strip()
         if not check_cdp(cdp_url):
             QMessageBox.warning(self, "错误", "CDP 未连接，请先启动 Chrome。")
             return
 
-        success = open_douyin_login(cdp_url)
+        success = open_login_page(cdp_url)
         if not success:
-            QMessageBox.warning(self, "错误", "无法通过 CDP 打开抖音页面。")
+            QMessageBox.warning(self, "错误", "无法通过 CDP 打开页面。")
             return
 
         self._login_in_progress = True
         self.login_btn.setVisible(False)
         self.complete_login_btn.setVisible(True)
         self.hint.setText(
-            "请在 Chrome 浏览器中手动完成抖音登录（扫码/手机验证）。\n"
+            "请在 Chrome 浏览器中手动完成账号登录（扫码/手机验证）。\n"
             "登录成功后，点击下方「完成登录，保存 Cookie」。"
         )
         QMessageBox.information(
-            self, "登录抖音",
-            "已在 Chrome 中打开抖音首页。\n\n"
+            self, "账号登录",
+            "已在 Chrome 中打开登录页面。\n\n"
             "请在浏览器中完成登录，然后回到本软件点击「完成登录，保存 Cookie」。"
         )
 
@@ -392,7 +392,7 @@ class EnvironmentPanel(QWidget):
 
         cookies = extract_cookies_cdp(cdp_url)
         if cookies is None or len(cookies) == 0:
-            QMessageBox.warning(self, "错误", "无法提取 Cookie，请确认已在 Chrome 中登录抖音。")
+            QMessageBox.warning(self, "错误", "无法提取 Cookie，请确认已在 Chrome 中完成登录。")
             self.complete_login_btn.setEnabled(True)
             self.complete_login_btn.setText("✅ 完成登录，保存 Cookie")
             return

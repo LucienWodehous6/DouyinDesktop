@@ -255,7 +255,7 @@ class ScriptPanel(QWidget):
         self.prompt_edit.setObjectName("promptEdit")
         self.prompt_edit.setPlaceholderText(
             "输入生成提示词...\n"
-            "例如：根据以下抖音视频数据，生成一篇带货推广剧本，包含开场、产品介绍、促单话术。"
+            "例如：根据以下视频数据，生成一篇带货推广剧本，包含开场、产品介绍、促单话术。"
         )
         self.prompt_edit.setMaximumHeight(70)
         self.prompt_edit.setStyleSheet("""
@@ -361,30 +361,30 @@ class ScriptPanel(QWidget):
     # ── 生成 ──
 
     def _extract_video_transcript(self, video_id: str) -> str:
-        """通过 douyin_downloader 提取单个视频文案"""
+        """通过 video_downloader 提取单个视频文案"""
         share_link = f"https://www.iesdouyin.com/share/video/{video_id}/"
         return self._extract_transcript_from_link(share_link)
 
     def _extract_transcript_from_link(self, share_link: str) -> str:
-        """通过 douyin_downloader 提取视频文案，返回文本"""
+        """通过 video_downloader 提取视频文案，返回文本"""
         # 惰性导入，避免 check_dependencies() 在 import 时 sys.exit
         spec = importlib.util.spec_from_file_location(
-            "douyin_downloader",
-            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "core_modules", "douyin_downloader.py")
+            "video_downloader",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "core_modules", "video_downloader.py")
         )
         if spec is None or spec.loader is None:
-            raise RuntimeError("无法加载 douyin_downloader.py")
+            raise RuntimeError("无法加载 video_downloader.py")
 
         # 绕过 check_dependencies：mock sys.exit
         _orig_exit = sys.exit
-        sys.exit = lambda code=0: (_ for _ in ()).throw(RuntimeError(f"douyin_downloader 依赖缺失 (退出码 {code})，请安装: pip install requests ffmpeg-python"))
+        sys.exit = lambda code=0: (_ for _ in ()).throw(RuntimeError(f"依赖模块缺失 (退出码 {code})，请安装: pip install requests ffmpeg-python"))
         try:
             dld = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(dld)
         finally:
             sys.exit = _orig_exit
 
-        api_key = (self._settings.get("douyin_api_key") or
+        api_key = (self._settings.get("video_api_key") or
                    self._settings.get("openai_text_api_key") or
                    self._settings.get("openai_api_key") or
                    os.environ.get("API_KEY", ""))
@@ -395,17 +395,17 @@ class ScriptPanel(QWidget):
         return result.get("text", "")
 
     def _load_system_prompt(self) -> str:
-        """加载系统预置提示词 models/douyin_script.md"""
+        """加载系统预置提示词 models/script.md"""
         # 查找脚本文件路径
         candidates = []
         if getattr(sys, 'frozen', False):
-            candidates.append(os.path.join(os.path.dirname(sys.executable), "models", "douyin_script.md"))
+            candidates.append(os.path.join(os.path.dirname(sys.executable), "models", "script.md"))
         else:
             # 开发模式：从 app/widgets/ 向上两级到项目根
             project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            candidates.append(os.path.join(project_root, "models", "douyin_script.md"))
+            candidates.append(os.path.join(project_root, "models", "script.md"))
         # 兜底：当前工作目录
-        candidates.append(os.path.join(os.getcwd(), "models", "douyin_script.md"))
+        candidates.append(os.path.join(os.getcwd(), "models", "script.md"))
 
         system_prompt = ""
         for path in candidates:

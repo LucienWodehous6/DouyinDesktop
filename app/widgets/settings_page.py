@@ -185,7 +185,7 @@ class ApiSettingsTab(QWidget):
         stt_group = QGroupBox("语音转文字")
         stt_form = QFormLayout(stt_group)
         stt_form.setSpacing(12)
-        stt_key = "douyin_api_key"
+        stt_key = "video_api_key"
         stt_input = QLineEdit(self.settings.get(stt_key, ""))
         stt_input.setPlaceholderText("用于视频语音转文字的 API Key")
         stt_input.setEchoMode(QLineEdit.EchoMode.Password)
