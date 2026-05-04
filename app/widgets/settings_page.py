@@ -381,28 +381,6 @@ class ApiSettingsTab(QWidget):
             test_status.setStyleSheet("color: #ff4757; font-size: 12px;")
             QMessageBox.warning(self, "测试失败", message)
 
-    def _browse_cookie(self):
-        path, _ = QFileDialog.getOpenFileName(self, "选择 Cookie", "", "JSON (*.json)")
-        if path:
-            self.cookie_input.setText(path)
-            self._save()
-
-    def _browse_storage(self):
-        path = QFileDialog.getExistingDirectory(self, "选择存储目录")
-        if path:
-            self.storage_input.setText(path)
-            self._save()
-
-    def _save(self):
-        self.settings["cdp_url"] = self.cdp_input.text().strip()
-        self.settings["cookie_file"] = self.cookie_input.text().strip() or None
-        self.settings["storage_path"] = self.storage_input.text().strip()
-        self.settings["use_cdp"] = self.cdp_mode.isChecked()
-        self.settings_changed.emit()
-
-    def get_cdp_url(self) -> str:
-        return self.cdp_input.text().strip()
-
 
 class SettingsPage(QWidget):
     """设置页面 = 环境检查 + CDP/Cookie"""
