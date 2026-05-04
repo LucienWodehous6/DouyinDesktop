@@ -5,12 +5,62 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
+
+
+class DMSentStore:
+    """永久记录已发送私信的用户，避免重复发送"""
+
+    def __init__(self, base_dir: Optional[str] = None):
+        self.base_dir = Path(base_dir or os.path.join(os.path.expanduser("~"), ".dy"))
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.record_path = self.base_dir / "dm_sent.json"
+        self._records: dict = self._load()
+
+    def _load(self) -> dict:
+        """加载已发送记录，格式: { secId: { username, shortId, sent_at } }"""
+        if self.record_path.exists():
+            try:
+                return json.loads(self.record_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        return {}
+
+    def _save(self):
+        self.record_path.write_text(json.dumps(self._records, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def is_sent(self, sec_id: str) -> bool:
+        """检查用户是否已发送过私信"""
+        return sec_id in self._records
+
+    def mark_sent(self, sec_id: str, username: str = "", short_id: str = ""):
+        """标记用户已发送私信"""
+        self._records[sec_id] = {
+            "username": username,
+            "short_id": short_id,
+            "sent_at": datetime.now().isoformat(),
+        }
+        self._save()
+
+    def get_record(self, sec_id: str) -> Optional[dict]:
+        return self._records.get(sec_id)
+
+
+# 全局单例
+_dm_sent_store: Optional[DMSentStore] = None
+
+
+def get_dm_sent_store() -> DMSentStore:
+    global _dm_sent_store
+    if _dm_sent_store is None:
+        _dm_sent_store = DMSentStore()
+    return _dm_sent_store
 
 
 class TaskStore:
     """管理采集任务的持久化存储"""
 
-    def __init__(self, base_dir: str | None = None):
+    def __init__(self, base_dir: Optional[str] = None):
         self.base_dir = Path(base_dir or os.path.join(os.path.expanduser("~"), ".dy", "results"))
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.index_path = self.base_dir / "index.json"
@@ -27,7 +77,7 @@ class TaskStore:
     def _save_index(self):
         self.index_path.write_text(json.dumps(self._index, ensure_ascii=False, indent=2))
 
-    def create_task(self, search_term: str, notes: str = "", match_keywords: list | None = None) -> str:
+    def create_task(self, search_term: str, notes: str = "", match_keywords: Optional[list] = None) -> str:
         """创建新任务，返回 task_id"""
         task_id = datetime.now().strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:6]
         self._index[task_id] = {
@@ -53,7 +103,7 @@ class TaskStore:
         self._save_index()
         return str(filepath)
 
-    def load_result(self, task_id: str) -> dict | None:
+    def load_result(self, task_id: str) -> Optional[dict]:
         """加载指定任务的结果"""
         info = self._index.get(task_id)
         if not info:

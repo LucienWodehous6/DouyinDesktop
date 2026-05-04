@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QLabel, QPushButton,
-    QFileDialog, QFrame, QComboBox, QGridLayout,
+    QFileDialog, QFrame, QComboBox, QGridLayout, QMessageBox,
 )
 from PyQt6.QtGui import QFont
 
@@ -44,10 +44,15 @@ class ResultsPanel(QWidget):
             self.task_combo.currentIndexChanged.connect(self._on_task_selected)
             title_row.addWidget(self.task_combo)
 
-            refresh_btn = QPushButton("🔄")
+            refresh_btn = QPushButton("[ 刷新 ]")
             refresh_btn.setObjectName("smallBtn")
             refresh_btn.clicked.connect(self._refresh_tasks)
             title_row.addWidget(refresh_btn)
+
+        self.delete_btn = QPushButton("[ 删除 ]")
+        self.delete_btn.setObjectName("smallBtn")
+        self.delete_btn.clicked.connect(self._on_delete_task)
+        title_row.addWidget(self.delete_btn)
 
         export_btn = QPushButton("导出 JSON")
         export_btn.setObjectName("smallBtn")
@@ -192,6 +197,7 @@ class ResultsPanel(QWidget):
             return
         task_id = self.task_combo.currentData()
         if task_id:
+            self._displayed_task_id = task_id
             data = self._task_store.load_result(task_id)
             if data:
                 self._data = data
@@ -225,3 +231,40 @@ class ResultsPanel(QWidget):
         path, _ = QFileDialog.getSaveFileName(self, "导出结果", "", "JSON (*.json)")
         if path:
             self.export_to(path)
+
+    def _on_delete_task(self):
+        if not self._task_store:
+            return
+        current_idx = self.task_combo.currentIndex()
+        if current_idx <= 0:
+            QMessageBox.warning(self, "提示", "请先选择一个任务。")
+            return
+
+        task_id = self.task_combo.currentData()
+        task_text = self.task_combo.currentText()
+        search_term = ""
+        if "|" in task_text:
+            search_term = task_text.split("|")[-1].strip()
+
+        reply = QMessageBox.question(
+            self,
+            "确认删除",
+            f"确定要删除该采集任务吗？\n\n搜索词：{search_term}\n此操作不可恢复。",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Ok:
+            return
+
+        # 记住当前展示的任务 ID，删除后清空
+        displayed_task_id = getattr(self, "_displayed_task_id", None)
+        self._task_store.delete_task(task_id)
+
+        if displayed_task_id == task_id:
+            self._data = None
+            self.tree.clear()
+            self.detail_view.clear()
+            self.summary_label.setText("")
+
+        self._refresh_tasks()
+        QMessageBox.information(self, "删除成功", "任务已删除。")
