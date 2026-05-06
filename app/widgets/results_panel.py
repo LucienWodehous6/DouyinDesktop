@@ -80,7 +80,9 @@ class ResultsPanel(QWidget):
         self.detail_view = QPlainTextEdit()
         self.detail_view.setObjectName("jsonView")
         self.detail_view.setReadOnly(True)
-        font = QFont("SF Mono", 11)
+        font = QFont("Cascadia Mono", 11)
+        if not QFont("Cascadia Mono").exactMatch():
+            font = QFont("Consolas", 11)
         font.setStyleHint(QFont.StyleHint.Monospace)
         self.detail_view.setFont(font)
         self.detail_view.setPlaceholderText("点击条目查看详情")
