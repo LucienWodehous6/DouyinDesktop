@@ -368,6 +368,15 @@ class SearchPanel(QWidget):
 
     def _on_platform_changed(self, btn):
         self._platform = "小红书" if btn == self.xhs_btn else "抖音"
+        # 小红书无私信功能，隐藏相关控件
+        is_xhs = (self._platform == "小红书")
+        self.dm_toggle.setVisible(not is_xhs)
+        if is_xhs:
+            self.dm_toggle.setChecked(False)
+            self._on_dm_toggle(False)
+        self.dm_msg_area.setVisible(not is_xhs and self.dm_toggle.isChecked())
+        self.dm_msg_input.setVisible(not is_xhs and self.dm_toggle.isChecked())
+        self.dm_msg_add_btn.setVisible(not is_xhs and self.dm_toggle.isChecked())
 
     def _on_kw_toggle(self, checked: bool):
         self.tag_area.setVisible(checked)
