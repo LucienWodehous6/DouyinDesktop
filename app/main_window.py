@@ -337,10 +337,12 @@ class MainWindow(QMainWindow):
             match_keywords=params.get("match_keywords"),
         )
         self.progress_panel.log(f"📋 任务 ID: {task_id}", "INFO")
+        self.progress_panel.log(f"📋 采集平台: {params.get('platform', '抖音')}", "INFO")
 
         self.worker = DataWorker(
             task_id=task_id,
             task_store=self.task_store,
+            platform=params.get("platform", "抖音"),
             search_text=params["search_text"],
             match_keywords=params.get("match_keywords"),
             video_count=params.get("video_count", 5),

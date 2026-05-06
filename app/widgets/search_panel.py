@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QLabel, QLineEdit, QPushButton, QSpinBox, QComboBox,
     QGridLayout, QCheckBox, QFrame, QMessageBox, QScrollArea,
+    QRadioButton, QButtonGroup,
 )
 from app.widgets.common_widgets import CLineEdit
 
@@ -44,6 +45,7 @@ class SearchPanel(QWidget):
         self._running = False
         self._keyword_tags: list[KeywordTag] = []
         self._dm_msg_tags: list[DMMsgTag] = []
+        self._platform = "抖音"
         self._init_ui()
 
     def _init_ui(self):
@@ -98,6 +100,77 @@ class SearchPanel(QWidget):
         title = QLabel("🔍 采集任务配置")
         title.setObjectName("pageTitle")
         layout.addWidget(title)
+
+        # ═══════════════════════════════════
+        #  平台选择
+        # ═══════════════════════════════════
+        platform_section = QLabel("【采集平台】")
+        platform_section.setObjectName("sectionLabel")
+        layout.addWidget(platform_section)
+
+        platform_row = QHBoxLayout()
+        platform_row.setSpacing(12)
+
+        self.platform_group = QButtonGroup()
+        self.douyin_btn = QRadioButton("抖音")
+        self.douyin_btn.setChecked(True)
+        self.douyin_btn.setStyleSheet("""
+            QRadioButton {
+                font-size: 15px;
+                font-weight: bold;
+                padding: 8px 16px;
+                spacing: 8px;
+            }
+            QRadioButton::indicator {
+                width: 20px;
+                height: 20px;
+            }
+            QRadioButton::indicator:checked {
+                image: none;
+                border: 3px solid #2ed573;
+                border-radius: 10px;
+                background: #2ed573;
+            }
+            QRadioButton::indicator:unchecked {
+                image: none;
+                border: 2px solid #555;
+                border-radius: 10px;
+                background: transparent;
+            }
+        """)
+        self.xhs_btn = QRadioButton("小红书")
+        self.xhs_btn.setStyleSheet("""
+            QRadioButton {
+                font-size: 15px;
+                font-weight: bold;
+                padding: 8px 16px;
+                spacing: 8px;
+            }
+            QRadioButton::indicator {
+                width: 20px;
+                height: 20px;
+            }
+            QRadioButton::indicator:checked {
+                image: none;
+                border: 3px solid #2ed573;
+                border-radius: 10px;
+                background: #2ed573;
+            }
+            QRadioButton::indicator:unchecked {
+                image: none;
+                border: 2px solid #555;
+                border-radius: 10px;
+                background: transparent;
+            }
+        """)
+        self.platform_group.addButton(self.douyin_btn, 0)
+        self.platform_group.addButton(self.xhs_btn, 1)
+        self.platform_group.buttonClicked.connect(self._on_platform_changed)
+
+        platform_row.addWidget(self.douyin_btn)
+        platform_row.addWidget(self.xhs_btn)
+        platform_row.addStretch()
+        layout.addLayout(platform_row)
 
         # ═══════════════════════════════════
         #  基础搜索
@@ -293,6 +366,9 @@ class SearchPanel(QWidget):
         self.tag_layout.removeWidget(tag)
         tag.deleteLater()
 
+    def _on_platform_changed(self, btn):
+        self._platform = "小红书" if btn == self.xhs_btn else "抖音"
+
     def _on_kw_toggle(self, checked: bool):
         self.tag_area.setVisible(checked)
         self.kw_input.setVisible(checked)
@@ -454,6 +530,7 @@ class SearchPanel(QWidget):
             dm_message = "\n".join(msgs)
 
         params = {
+            "platform": self._platform,
             "search_text": text,
             "notes": self.notes_input.text().strip(),
             "match_keywords": match_keywords,
@@ -483,5 +560,7 @@ class SearchPanel(QWidget):
         self.dm_toggle.setEnabled(not running)
         self.dm_msg_input.setEnabled(not running)
         self.dm_msg_add_btn.setEnabled(not running)
+        self.douyin_btn.setEnabled(not running)
+        self.xhs_btn.setEnabled(not running)
         self.save_btn.setEnabled(not running)
         self.load_btn.setEnabled(not running)
