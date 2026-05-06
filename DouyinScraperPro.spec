@@ -24,9 +24,10 @@ hiddenimports = [
     "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets", "PyQt6.sip",
     "playwright", "playwright.sync_api",
     "json", "asyncio", "threading", "urllib", "shutil", "subprocess",
+    "html", "html.parser",
 ]
 
-excludes = ["tkinter", "unittest", "pydoc", "html", "xml"]
+excludes = ["tkinter", "unittest", "pydoc", "xml"]
 
 a = Analysis(
     [str(PROJECT_DIR / "main.py")],
