@@ -25,16 +25,26 @@ jobs:
       - name: PyInstaller 打包
         run: pyinstaller DouyinScraperPro.spec --noconfirm
 
+      - name: 复制核心脚本
+        shell: cmd
+        run: |
+          if not exist "dist\core_modules" mkdir "dist\core_modules"
+          if exist "core_modules\douyin_browser_automation.py" copy /Y "core_modules\douyin_browser_automation.py" "dist\core_modules\"
+          if exist "core_modules\xhs_search.py" copy /Y "core_modules\xhs_search.py" "dist\core_modules\"
+          if exist "core_modules\douyin_downloader.py" copy /Y "core_modules\douyin_downloader.py" "dist\core_modules\"
+
       - name: 复制浏览器文件
         shell: cmd
         run: |
           for /f "tokens=*" %%i in ('python -c "import os; print(os.path.join(os.environ['LOCALAPPDATA'], 'ms-playwright'))"') do set CACHE=%%i
           if exist "%CACHE%" (
+            if not exist "dist\playwright_browsers" mkdir "dist\playwright_browsers"
             xcopy /E /I /Y "%CACHE%\*" "dist\playwright_browsers\"
             echo ok > "dist\playwright_browsers\.installed"
           ) else (
             for /f "tokens=*" %%i in ('python -c "import os; print(os.path.join(os.path.expanduser('~'), '.cache', 'ms-playwright'))"') do set CACHE2=%%i
             if exist "!CACHE2!" (
+              if not exist "dist\playwright_browsers" mkdir "dist\playwright_browsers"
               xcopy /E /I /Y "!CACHE2!\*" "dist\playwright_browsers\"
               echo ok > "dist\playwright_browsers\.installed"
             )
@@ -46,6 +56,7 @@ jobs:
           name: DouyinScraperPro-Windows
           path: |
             dist/DouyinScraperPro.exe
+            dist/core_modules/
             dist/playwright_browsers/
             README.md
 
@@ -59,7 +70,7 @@ jobs:
           name: DouyinScraperPro-Windows
 
       - name: 打包为 zip
-        run: zip -r DouyinScraperPro-Windows.zip DouyinScraperPro.exe playwright_browsers/ README.md
+        run: zip -r DouyinScraperPro-Windows.zip DouyinScraperPro.exe core_modules/ playwright_browsers/ README.md
 
       - uses: softprops/action-gh-release@v2
         with:

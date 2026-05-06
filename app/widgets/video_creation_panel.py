@@ -975,7 +975,7 @@ class VideoCreationPanel(QWidget):
                     list_path = os.path.join(tempfile.gettempdir(), "dy_concat_list.txt")
                     with open(list_path, "w", encoding="utf-8") as f:
                         for seg in self.segments:
-                            f.write(f"file '{seg}'\n")
+                            f.write(f"file '{os.path.normpath(seg).replace(os.sep, '/')}'\n")
 
                     self.progress_signal.emit(30)
                     # 执行 FFmpeg concat
