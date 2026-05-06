@@ -59,6 +59,7 @@ jobs:
             dist/core_modules/
             dist/playwright_browsers/
             README.md
+          if-no-files-found: error
 
   release:
     needs: build
