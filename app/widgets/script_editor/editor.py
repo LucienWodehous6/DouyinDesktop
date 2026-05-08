@@ -349,9 +349,11 @@ class ScriptPanel(QWidget):
 
     def _extract_transcript_from_link(self, share_link: str) -> str:
         """通过 video_downloader 提取视频文案，返回文本"""
+        # editor.py 在 app/widgets/script_editor/，需要向上4层到项目根目录
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         spec = importlib.util.spec_from_file_location(
             "video_downloader",
-            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "core_modules", "douyin_downloader.py")
+            os.path.join(project_root, "core_modules", "douyin_downloader.py")
         )
         if spec is None or spec.loader is None:
             raise RuntimeError("无法加载 video_downloader.py")
