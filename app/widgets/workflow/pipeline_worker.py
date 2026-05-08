@@ -69,6 +69,8 @@ class PipelineWorker(QThread):
             count=config.get("count", 20),
             output_file=result_file,
         )
+        worker.log_signal.connect(lambda msg: self.log_signal.emit("CDO", msg))
+        worker.error_signal.connect(lambda e: self.error_signal.emit(f"CDO: {e}"))
         worker.finished_signal.connect(lambda: worker.deleteLater())
         worker.start()
         worker.wait()
@@ -86,6 +88,8 @@ class PipelineWorker(QThread):
             model=config.get("model", "deepseek-chat"),
             style=config.get("style", "neutral"),
         )
+        worker.log_signal.connect(lambda msg: self.log_signal.emit("CCO", msg))
+        worker.error_signal.connect(lambda e: self.error_signal.emit(f"CCO: {e}"))
         worker.finished_signal.connect(lambda: worker.deleteLater())
         worker.start()
         worker.wait()
@@ -102,6 +106,8 @@ class PipelineWorker(QThread):
             api_base=config.get("api_base", "https://api.deepseek.com/v1"),
             model=config.get("model", "deepseek-chat"),
         )
+        worker.log_signal.connect(lambda msg: self.log_signal.emit("SEO", msg))
+        worker.error_signal.connect(lambda e: self.error_signal.emit(f"SEO: {e}"))
         worker.finished_signal.connect(lambda: worker.deleteLater())
         worker.start()
         worker.wait()
@@ -119,6 +125,8 @@ class PipelineWorker(QThread):
             model=config.get("model", "deepseek-chat"),
             target_platform=config.get("target_platform", "抖音"),
         )
+        worker.log_signal.connect(lambda msg: self.log_signal.emit("CMO", msg))
+        worker.error_signal.connect(lambda e: self.error_signal.emit(f"CMO: {e}"))
         worker.finished_signal.connect(lambda: worker.deleteLater())
         worker.start()
         worker.wait()
