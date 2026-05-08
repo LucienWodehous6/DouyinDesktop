@@ -580,10 +580,10 @@ class ScriptPanel(QWidget):
         self._last_result = text
         self._last_prompt = self.prompt_edit.toPlainText().strip()
         self._hide_progress()
-        self.save_btn.setEnabled(True)
-        self.modify_btn.setEnabled(True)
-        self.gen_btn.setEnabled(True)
-        self.gen_btn.setText("✨ AI 生成剧本")
+
+        # 自动触发 SEO 优化（不立即展示原剧本）
+        topic = self.prompt_edit.toPlainText().strip()[:50]
+        self._run_seo_optimize(text, topic)
 
     def _on_modify_result(self, text: str):
         print(f"[剧本] === 修改完成 === ({len(text)} 字符)")
