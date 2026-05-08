@@ -673,7 +673,9 @@ class ScriptPanel(QWidget):
     def _on_error(self, msg: str):
         print(f"[剧本] === 生成失败 === {msg}")
         self._hide_progress()
-        self.result_label.setText(f"<p style='color:#f85149'>❌ 生成失败: {msg}</p>")
+        self.result_label.setText(
+            f"<p style='color:#f85149'>❌ 生成失败: {msg}</p>"
+        )
         self.gen_btn.setEnabled(True)
         self.modify_btn.setEnabled(True)
         self.gen_btn.setText("✨ AI 生成剧本")
