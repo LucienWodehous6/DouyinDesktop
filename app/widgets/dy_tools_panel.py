@@ -66,4 +66,5 @@ class DyToolsPanel(QWidget):
         self.trending_tab.set_settings(settings)
         self.interaction_tab.set_settings(settings)
         self.aigc_tab.set_settings(settings)
+        self.skill_executor_tab.set_settings(settings)
         self.account_tab.set_settings(settings)

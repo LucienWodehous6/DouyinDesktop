@@ -102,9 +102,13 @@ class SkillExecutorTab(QWidget):
         if not self._current_skill:
             return
         skill_id = self._current_skill["id"]
+        try:
+            duration = int(self.duration_input.text() or "60")
+        except ValueError:
+            duration = 60
         params = {
             "topic": self.topic_input.text().strip(),
-            "duration": int(self.duration_input.text() or "60"),
+            "duration": duration,
             "tone": self.tone_combo.currentText(),
         }
         self.log_signal.emit(f"[Skill] 开始执行: {skill_id}", "INFO")
