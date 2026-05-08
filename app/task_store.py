@@ -96,6 +96,8 @@ class TaskStore:
         """保存采集结果"""
         if task_id not in self._index:
             return
+        if not result_data.get("videos"):
+            return
         filepath = self.base_dir / f"{task_id}.json"
         filepath.write_text(json.dumps(result_data, ensure_ascii=False, indent=2))
         self._index[task_id]["status"] = "completed"
@@ -109,8 +111,11 @@ class TaskStore:
         if not info:
             return None
         filepath = Path(info["result_file"])
-        if filepath.exists():
-            return json.loads(filepath.read_text())
+        if filepath.exists() and filepath.stat().st_size > 0:
+            try:
+                return json.loads(filepath.read_text())
+            except (json.JSONDecodeError, ValueError):
+                return None
         return None
 
     def list_tasks(self, limit: int = 50) -> list[dict]:

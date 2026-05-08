@@ -471,6 +471,53 @@ QHeaderView::section {
 }
 
 /* ==========================================
+   QTableWidget 表格
+   ========================================== */
+QTableWidget {
+    background: #0d1117;
+    color: #c9d1d9;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    font-size: 13px;
+    gridline-color: #21262d;
+    outline: none;
+    selection-background-color: #1f2937;
+    selection-color: #ff6b81;
+}
+QTableWidget::item {
+    background: #0d1117;
+    color: #c9d1d9;
+    padding: 6px 8px;
+    min-height: 28px;
+}
+QTableWidget::item:alternate {
+    background: #161b22;
+}
+QTableWidget::item:selected {
+    background: #1f2937;
+    color: #ff6b81;
+}
+QHeaderView::section {
+    background: #161b22;
+    color: #8b949e;
+    padding: 8px 12px;
+    border: none;
+    border-right: 1px solid #21262d;
+    border-bottom: 1px solid #21262d;
+    font-size: 11px;
+    font-weight: 700;
+}
+QHeaderView::section:last {
+    border-right: none;
+}
+QTableWidget QTableCornerButton::section {
+    background: #161b22;
+    border: none;
+    border-right: 1px solid #21262d;
+    border-bottom: 1px solid #21262d;
+}
+
+/* ==========================================
    进度条
    ========================================== */
 QProgressBar {

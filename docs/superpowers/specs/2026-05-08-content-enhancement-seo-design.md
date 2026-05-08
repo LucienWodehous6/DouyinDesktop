@@ -4,117 +4,121 @@
 
 ## 背景
 
-现有的剧本生成面板（`ScriptPanel`）调用 AI 生成剧本后，用户需要手动复制标题、添加标签。SEO/标签优化作为独立 Skill 存在，但未被集成到剧本生成流程中。
-
-本次改进目标：在剧本生成时，AI 一次性输出剧本 + SEO 元数据（优化标题、标签、描述），以 YAML frontmatter 格式附加在剧本开头。
+现有的剧本生成面板（`ScriptPanel`）调用 AI 生成剧本后，用户需要手动优化标题、添加标签。本次改进目标：剧本生成完成后，自动调用第二次 AI 对剧本进行 SEO 优化，将优化后的结果展示给用户。
 
 ## 设计决策
 
 | 问题 | 选择 |
 |------|------|
 | 功能放在哪里 | 集成到剧本面板（ScriptPanel） |
-| 何时触发 | 剧本生成时同一次 AI 调用 |
-| 结果展示方式 | YAML frontmatter 在剧本开头 |
+| 何时触发 | 剧本生成完成后自动触发 |
+| 结果展示方式 | 覆盖原剧本，展示优化后的版本 |
 
-## 输出格式
-
-AI 生成的完整内容结构：
-
-```yaml
----
-title: "主标题（吸睛型，≤20字）"
-title_variants:
-  - "变体标题1（信任型）"
-  - "变体标题2（紧迫型）"
-hashtags:
-  - "#标签1"
-  - "#标签2"
-  - "#标签3"
-  - "#标签4"
-  - "#标签5"
-description: "短视频描述（≤100字，用于平台展示）"
----
-
-# 正式剧本正文
-
-【开场钩子】
-...
-
-【产品介绍】
-...
-
-【促单话术】
-...
-
-【结束语】
-```
-
-## 系统提示词更新
-
-修改 `models/script.md`，增加 SEO 输出要求：
+## 两阶段流程
 
 ```
-## SEO 元数据输出要求（必须执行）
+阶段 1：剧本生成
+用户输入提示词 → AI 生成剧本 → 展示剧本（临时）
 
-在剧本正文之前，先输出一段 YAML frontmatter，包含以下字段：
-
-```yaml
----
-title: "主标题（≤20字，吸睛型，含关键词）"
-title_variants:
-  - "变体A（信任型，≤20字）"
-  - "变体B（紧迫型，≤20字）"
-hashtags:
-  - "#标签1"
-  - "#标签2"
-  - "#标签3"
-  - "#标签4"
-  - "#标签5"
-description: "视频描述（≤100字，含关键词）"
----
+阶段 2：自动 SEO 优化（剧本生成完成后立即触发）
+拿阶段 1 的剧本 → 调用 SEO 优化 AI → 展示优化后剧本 → 用户看到最终结果
 ```
 
-要求：
-- `title` 必须包含用户提供的关键词
-- `hashtags` 必须恰好 5 个，以 `#` 开头，符合抖音平台规范
-- `description` 涵盖核心卖点，字数控制在 100 字内
-- YAML frontmatter 必须位于剧本正文之前，用 `---` 包裹
-- 剧本正文结构保持原有格式：【开场钩子】【产品介绍】【场景演绎】【促单话术】【结束语】
+## 阶段 1：剧本生成（现有流程不变）
 
-## UI 变更
+剧本生成逻辑保持不变，`_on_result()` 中剧本文本存入 `self._last_result`。
 
-### ScriptPanel
+## 阶段 2：SEO 优化 Worker
 
-- `prompt_edit` placeholder 更新为引导用户输入主题/产品信息
-- 生成结果 `_render_markdown()` 已有代码块样式，会自动渲染 YAML frontmatter
-- 无需新增 UI 控件，利用现有 result_label 展示
+新增 `SEOOptimizeWorker(QThread)`，在 `_on_result()` 中自动触发：
 
-### 提示词模板示例
-
-用户输入提示词时，提供示例帮助 AI 理解：
-
-```
-输入提示词示例：
-"帮我生成一个护肤品带货剧本，主打补水保湿功效，目标用户是年轻女性"
+```python
+def _on_result(self, text: str):
+    self._last_result = text  # 临时保存原剧本
+    # 自动触发 SEO 优化（不展示原剧本）
+    self._run_seo_optimize(text)
 ```
 
-AI 收到后，在 frontmatter 的 title/description/hashtags 中自动融入"补水保湿"等关键词。
+### SEOOptimizeWorker
+
+```python
+class SEOOptimizeWorker(QThread):
+    result_signal = pyqtSignal(str)  # 优化后的完整剧本
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, script_text: str, topic: str, api_key: str,
+                 api_base: str, model: str):
+        super().__init__()
+        self.script_text = script_text
+        self.topic = topic
+        self.api_key = api_key
+        self.api_base = api_base
+        self.model = model
+
+    def run(self):
+        # 构建 SEO 优化 prompt
+        prompt = f"""你是一位抖音 SEO 优化专家。请对以下剧本进行标题和标签优化。
+
+原始剧本：
+{self.script_text}
+
+任务：
+1. 优化标题（≤20字，吸睛，包含关键词）
+2. 生成 2 个变体标题（信任型、紧迫型）
+3. 推荐 5 个标签（以 # 开头）
+4. 生成视频描述（≤100字）
+
+输出格式（必须严格遵循）：
+
+【优化标题】
+标题内容
+
+【标题变体】
+变体A（信任型）：xxx
+变体B（紧迫型）：xxx
+
+【推荐标签】
+#标签1 #标签2 #标签3 #标签4 #标签5
+
+【视频描述】
+描述内容
+
+【优化后剧本】
+（将优化后的完整剧本输出，保留原有结构，只优化标题和话术）
+"""
+
+        # 调用 AI，流式输出到 result_signal
+        ...
+```
 
 ## 数据流
 
 ```
-用户输入提示词
+_generate()
     ↓
-ScriptWorker 构建 messages（含更新后的 system_prompt）
+ScriptWorker 生成剧本 → _on_result(text)
     ↓
-AI 流式返回：YAML frontmatter + 剧本正文
+_on_result 调用 _run_seo_optimize(text)
     ↓
-chunk_signal 追加到 result_label
+SEOOptimizeWorker 调用 AI
     ↓
-mistune 渲染 YAML 为代码块样式，正文为 Markdown
+流式输出到 _on_seo_result(optimized_text)
     ↓
-用户看到：带 SEO 元数据的完整剧本
+_on_seo_result 更新 result_label 为优化后剧本
+    ↓
+保存/修改按钮变为可用
 ```
+
+## UI 变更
+
+- `_on_result()` 中**不**立即展示剧本，改为保存后触发 SEO 优化
+- 新增 `_on_seo_result()` 收到优化结果后展示到 result_label
+- 进度条：阶段 1 显示 "AI 生成剧本..." → 阶段 2 显示 "正在优化 SEO..."
+- 优化完成后 result_label 显示最终剧本（包含标题变体、标签、优化后正文）
+
+## 依赖变更
+
+- 无新依赖，复用现有 API 配置
 
 ## 依赖变更
 
@@ -122,13 +126,14 @@ mistune 渲染 YAML 为代码块样式，正文为 Markdown
 
 ## 测试策略
 
-1. **功能测试**：输入包含关键词的提示词，验证输出 frontmatter 包含该关键词
-2. **格式测试**：验证 frontmatter 有 5 个标签、3 个标题变体
-3. **渲染测试**：验证 mistune 正确渲染 YAML 代码块
-4. **边界测试**：关键词为空、标签过长、标题超长等场景
+1. **两阶段流程测试**：验证剧本生成完成后自动触发 SEO 优化
+2. **标题变体验证**：验证输出包含 3 个标题（原+2变体）
+3. **标签验证**：验证恰好 5 个标签，以 # 开头
+4. **流式输出测试**：SEO 优化结果流式展示到 result_label
+5. **API 失败处理**：SEO 调用失败时回退到显示原剧本
 
 ## 不涉及的范围
 
 - 不修改 Skill 框架（子系统 C 已完成）
 - 不新增 Tab 或独立页面
-- 不改变 API 调用流程（复用现有 ScriptWorker）
+- 不改变剧本生成流程本身（ScriptWorker 保持不变）

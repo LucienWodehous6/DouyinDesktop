@@ -56,7 +56,6 @@ class DataWorker(QThread):
         """在后台线程中执行采集逻辑"""
         os.environ["DOUYIN_DESKTOP_MODE"] = "1"
         try:
-            # 修改脚本中的全局配置（通过 monkey-patch 传入参数）
             self._run_automation()
         except Exception as e:
             self.error_signal.emit(str(e))
@@ -99,9 +98,20 @@ class DataWorker(QThread):
                 self.signal = signal
                 self.original = original
                 self._buffer = ""
+                self._closed = False
 
             def write(self, s):
-                self.original.write(s)
+                if self._closed:
+                    return
+                try:
+                    if sys.platform == 'win32':
+                        s_out = s.encode('gbk', errors='replace').decode('gbk')
+                        self.original.write(s_out)
+                    else:
+                        self.original.write(s)
+                except (ValueError, IOError):
+                    self._closed = True
+                    return
                 self._buffer += s
                 if "\n" in self._buffer:
                     lines = self._buffer.split("\n")
@@ -175,9 +185,20 @@ class DataWorker(QThread):
                 self.signal = signal
                 self.original = original
                 self._buffer = ""
+                self._closed = False
 
             def write(self, s):
-                self.original.write(s)
+                if self._closed:
+                    return
+                try:
+                    if sys.platform == 'win32':
+                        s_out = s.encode('gbk', errors='replace').decode('gbk')
+                        self.original.write(s_out)
+                    else:
+                        self.original.write(s)
+                except (ValueError, IOError):
+                    self._closed = True
+                    return
                 self._buffer += s
                 if "\n" in self._buffer:
                     lines = self._buffer.split("\n")

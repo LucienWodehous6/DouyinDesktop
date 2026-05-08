@@ -5,6 +5,12 @@ import os
 import shutil
 import subprocess
 
+# Windows 下设置 UTF-8 输出编码
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 if getattr(sys, 'frozen', False):
     BASE_DIR = sys._MEIPASS
     EXE_DIR = os.path.dirname(sys.executable)
@@ -14,6 +20,7 @@ else:
 
 os.chdir(BASE_DIR)
 sys.path.insert(0, BASE_DIR)
+sys.path.insert(1, os.path.join(BASE_DIR, "core_modules"))
 
 # 浏览器安装到可写目录
 BROWSERS_DIR = os.path.join(EXE_DIR, "playwright_browsers")

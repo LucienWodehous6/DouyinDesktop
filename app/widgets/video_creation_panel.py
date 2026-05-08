@@ -12,9 +12,10 @@ from PyQt6.QtWidgets import (
     QPushButton, QTextEdit, QLineEdit, QProgressBar,
     QComboBox, QMessageBox, QInputDialog, QDialog, QMenu,
     QScrollArea, QFrame, QFileDialog, QCheckBox,
-    QGroupBox, QGridLayout,
+    QGroupBox, QGridLayout, QSlider,
 )
 from PyQt6.QtGui import QPixmap
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 import io
 from PIL import Image
 import tempfile
@@ -48,12 +49,13 @@ class SceneWidget(QGroupBox):
     """单个分镜 UI 组件"""
     image_generated = pyqtSignal(int)  # scene_index
 
-    def __init__(self, scene_index: int, title: str, prompt: str, panel=None, parent=None):
+    def __init__(self, scene_index: int, title: str, prompt: str, voice_text: str = "", panel=None, parent=None):
         super().__init__(f"分镜 {scene_index + 1}: {title}", parent)
         self.scene_index = scene_index
         self._panel = panel
         self.generated_image_path = ""
         self.generated_video_path = ""
+        self.generated_voice_path = ""
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
@@ -79,6 +81,54 @@ class SceneWidget(QGroupBox):
         title_row.addWidget(self.upload_img_btn)
 
         layout.addLayout(title_row)
+
+        # ── 口播文案 ──
+        layout.addWidget(QLabel("口播文案:"))
+        self.voice_edit = QTextEdit()
+        self.voice_edit.setPlainText(voice_text)
+        self.voice_edit.setMaximumHeight(70)
+        self.voice_edit.setStyleSheet("""
+            QTextEdit {
+                background: #0d1117; color: #dfe6e9;
+                border: 1px solid #30363d; border-radius: 6px;
+                padding: 8px; font-size: 12px;
+            }
+        """)
+        self.voice_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.voice_edit.customContextMenuRequested.connect(self._on_text_context_menu)
+        layout.addWidget(self.voice_edit)
+
+        # 音频行
+        voice_btn_row = QHBoxLayout()
+        self.gen_voice_btn = QPushButton("🔊 生成音频")
+        self.gen_voice_btn.setObjectName("smallBtn")
+        self.gen_voice_btn.clicked.connect(self._on_gen_voice)
+        voice_btn_row.addWidget(self.gen_voice_btn)
+
+        self.play_pause_btn = QPushButton("▶")
+        self.play_pause_btn.setObjectName("smallBtn")
+        self.play_pause_btn.setFixedWidth(36)
+        self.play_pause_btn.setVisible(False)
+        self.play_pause_btn.clicked.connect(self._on_play_pause)
+        voice_btn_row.addWidget(self.play_pause_btn)
+
+        self.voice_slider = QSlider(Qt.Orientation.Horizontal)
+        self.voice_slider.setMinimumHeight(20)
+        self.voice_slider.setVisible(False)
+        self.voice_slider.sliderMoved.connect(self._on_voice_seek)
+        voice_btn_row.addWidget(self.voice_slider, 1)
+
+        self.voice_duration_label = QLabel("00:00 / 00:00")
+        self.voice_duration_label.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self.voice_duration_label.setFixedWidth(90)
+        self.voice_duration_label.setVisible(False)
+        voice_btn_row.addWidget(self.voice_duration_label)
+
+        self.voice_status = QLabel("")
+        self.voice_status.setStyleSheet("color: #8b949e; font-size: 11px;")
+        voice_btn_row.addWidget(self.voice_status)
+        voice_btn_row.addStretch()
+        layout.addLayout(voice_btn_row)
 
         # 提示词
         layout.addWidget(QLabel("生图提示词:"))
@@ -111,6 +161,11 @@ class SceneWidget(QGroupBox):
         self.gen_video_btn.setObjectName("smallBtn")
         self.gen_video_btn.setEnabled(False)
         btn_row.addWidget(self.gen_video_btn)
+
+        self.upload_video_btn = QPushButton("📤 上传视频")
+        self.upload_video_btn.setObjectName("smallBtn")
+        self.upload_video_btn.clicked.connect(self._on_upload_video)
+        btn_row.addWidget(self.upload_video_btn)
         layout.addLayout(btn_row)
 
         # 图片预览
@@ -140,8 +195,36 @@ class SceneWidget(QGroupBox):
     def _on_title_changed(self, text: str):
         """修改分镜标题后同步更新 GroupBox 标题和场景数据"""
         self.setTitle(f"分镜 {self.scene_index + 1}: {text}")
-        if self._panel:
+        if self._panel and self.scene_index < len(self._panel._scenes):
             self._panel._scenes[self.scene_index]["title"] = text
+
+    def _on_gen_voice(self):
+        """为当前分镜生成语音"""
+        text = self.voice_edit.toPlainText().strip()
+        if not text:
+            QMessageBox.warning(self, "提示", "口播文案为空，请先填写口播内容。")
+            return
+        if self._panel:
+            self._panel._generate_scene_voice(self.scene_index)
+
+    def _on_play_pause(self):
+        """播放/暂停当前分镜的语音"""
+        if not self.generated_voice_path or not os.path.exists(self.generated_voice_path):
+            return
+        if self._panel:
+            player = self._panel._audio_player
+            if player.playbackState() == player.PlaybackState.PlayingState:
+                player.pause()
+            else:
+                from PyQt6.QtCore import QUrl
+                self._panel._current_playing_scene = self.scene_index
+                if player.source().toLocalFile() != self.generated_voice_path:
+                    player.setSource(QUrl.fromLocalFile(self.generated_voice_path))
+                player.play()
+
+    def _on_voice_seek(self, position):
+        if self._panel:
+            self._panel._audio_player.setPosition(position)
 
     def _on_upload_image(self):
         """上传自定义图片作为分镜图片"""
@@ -167,6 +250,28 @@ class SceneWidget(QGroupBox):
         if self._panel:
             self._panel._scenes[self.scene_index]["image"] = dst
         print(f"[视频创作] 分镜{self.scene_index+1} 已上传自定义图片: {dst}")
+
+    def _on_upload_video(self):
+        """上传自定义视频作为分镜视频"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择分镜视频", "",
+            "视频 (*.mp4 *.mov *.avi *.mkv *.webm)")
+        if not path:
+            return
+        import shutil, tempfile
+        ext = os.path.splitext(path)[1] or ".mp4"
+        dst = os.path.join(tempfile.gettempdir(), f"dy_video_{self.scene_index}_{os.getpid()}{ext}")
+        shutil.copy2(path, dst)
+        self.generated_video_path = dst
+        if self._panel:
+            self._panel._scenes[self.scene_index]["video"] = dst
+        self.video_status_label.setText("📤 自定义视频")
+        self.video_status_label.setStyleSheet("color: #2ed573; font-size: 11px;")
+        self.video_status_label.setVisible(True)
+        self.play_video_btn.setVisible(True)
+        self.gen_video_btn.setText("🎬 重新生成")
+        self.gen_video_btn.setEnabled(True)
+        print(f"[视频创作] 分镜{self.scene_index+1} 已上传自定义视频: {dst}")
 
     def _on_image_click(self):
         """点击图片放大查看"""
@@ -233,11 +338,27 @@ class VideoCreationPanel(QWidget):
         super().__init__()
         self._task_store = task_store
         self._settings = settings or {}
-        self._scenes: list[dict] = []  # [{title, prompt, image, video}]
+        self._scenes: list[dict] = []  # [{title, prompt, voice, image, video}]
         self._scene_widgets: list[SceneWidget] = []
         self._reference_image = ""  # 参考图路径
         self._workers: list = []
+        # 内置音频播放器
+        self._audio_player = QMediaPlayer()
+        self._audio_output = QAudioOutput()
+        self._audio_player.setAudioOutput(self._audio_output)
+        self._audio_output.setVolume(1.0)
+        self._current_playing_scene = -1  # 当前播放的分镜索引
+        self._audio_player.positionChanged.connect(self._on_global_position_changed)
+        self._audio_player.durationChanged.connect(self._on_global_duration_changed)
+        self._audio_player.playbackStateChanged.connect(self._on_global_playback_changed)
         self._init_ui()
+
+    @staticmethod
+    def _format_duration(ms: int) -> str:
+        total_sec = max(0, ms // 1000)
+        m = total_sec // 60
+        s = total_sec % 60
+        return f"{m:02d}:{s:02d}"
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -306,6 +427,12 @@ class VideoCreationPanel(QWidget):
         self.gen_all_btn.clicked.connect(self._generate_all_images)
         self.gen_all_btn.setEnabled(False)
         action_row.addWidget(self.gen_all_btn)
+
+        self.gen_all_voice_btn = QPushButton("🔊 生成全部音频")
+        self.gen_all_voice_btn.setObjectName("primaryBtn")
+        self.gen_all_voice_btn.clicked.connect(self._generate_all_voices)
+        self.gen_all_voice_btn.setEnabled(False)
+        action_row.addWidget(self.gen_all_voice_btn)
 
         self.add_scene_btn = QPushButton("➕ 手动添加分镜")
         self.add_scene_btn.setObjectName("primaryBtn")
@@ -430,9 +557,10 @@ class VideoCreationPanel(QWidget):
                     prompt = (
                         f"请将以下剧本拆分为5-8个分镜。每个分镜包含：\n"
                         f"1. 分镜标题（≤10字）\n"
-                        f"2. 生图提示词（详细描述画面内容、构图、光线、风格，适合AI生图）\n\n"
+                        f"2. 口播文案（该分镜对应的口播内容，用于配音，简洁有力，适合宣传口播风格，每段15-60字）\n"
+                        f"3. 生图提示词（详细描述画面内容、构图、光线、风格，适合AI生图）\n\n"
                         f"输出格式（严格JSON）：\n"
-                        f'[{{"title":"分镜标题","prompt":"生图提示词"}}, ...]\n'
+                        f'[{{"title":"分镜标题","voice":"口播文案内容","prompt":"生图提示词"}}, ...]\n'
                         f"\n剧本内容：\n{self.script}"
                     )
 
@@ -551,21 +679,62 @@ class VideoCreationPanel(QWidget):
         self.split_btn.setEnabled(True)
         self.split_btn.setText("🔀 AI 拆分分镜")
         try:
-            print(f"[视频创作] 拆分返回 ({len(text)} 字符): {text[:300]}...")
+            print(f"[视频创作] 拆分返回 ({len(text)} 字符)")
             import re
-            match = re.search(r"\[.*\]", text, re.DOTALL)
-            if match:
-                json_str = match.group()
-                print(f"[视频创作] 提取JSON ({len(json_str)} 字符): {json_str[:200]}...")
-                scenes = json.loads(json_str)
+            # 优先提取 markdown 代码块内的 JSON
+            json_str = None
+            code_block_match = re.search(r"```(?:json)?\s*(\[[\s\S]*?\])\s*```", text)
+            if code_block_match:
+                json_str = code_block_match.group(1).strip()
+                print(f"[视频创作] 从代码块提取 JSON ({len(json_str)} 字符)")
             else:
-                scenes = json.loads(text)
+                # fallback: 括号计数提取
+                idx = text.find("[")
+                if idx != -1:
+                    depth = 0
+                    start = idx
+                    for i, ch in enumerate(text[idx:], start):
+                        if ch == "[":
+                            depth += 1
+                        elif ch == "]":
+                            depth -= 1
+                            if depth == 0:
+                                json_str = text[start:i+1]
+                                break
+
+            if json_str:
+                print(f"[视频创作] 提取JSON ({len(json_str)} 字符)")
+                cleaned = json_str.strip()
+                # 修复尾随逗号
+                cleaned = re.sub(r",(\s*[}\]])", r"\1", cleaned)
+                try:
+                    scenes = json.loads(cleaned)
+                except json.JSONDecodeError as je:
+                    print(f"[视频创作] JSON 修复尝试...")
+                    # 尝试修复：对象之间缺少逗号的情况
+                    # 在 } 和 "title" 之间插入逗号
+                    fixed = re.sub(r"\}\s*(\"[\w一-鿿])", r"},\1", cleaned)
+                    try:
+                        scenes = json.loads(fixed)
+                        print(f"[视频创作] JSON 修复成功")
+                    except json.JSONDecodeError:
+                        print(f"[视频创作] JSON 解析失败: {je}")
+                        print(f"[视频创作] 出错位置附近: ...{cleaned[max(0,je.pos-30):je.pos+30]}...")
+                        QMessageBox.critical(self, "解析失败", f"JSON 解析错误:\n{je}\n\nAI 返回的 JSON 格式异常（对象之间缺少逗号）。")
+                        return
+            else:
+                QMessageBox.critical(self, "解析失败", "未找到有效的 JSON 数据，请重试。")
+                return
 
             if not isinstance(scenes, list):
                 raise ValueError(f"AI 返回的不是数组，类型: {type(scenes).__name__}")
 
-            # 过滤掉参考图分镜
-            self._scenes = [s for s in scenes if "参考图" not in s.get("title", "")]
+            # 过滤掉参考图分镜，补充 voice 字段默认值
+            for s in scenes:
+                if "参考图" in s.get("title", ""):
+                    continue
+                s.setdefault("voice", "")
+                self._scenes.append(s)
             print(f"[视频创作] 解析到 {len(self._scenes)} 个分镜")
 
             # 重建 UI
@@ -578,6 +747,7 @@ class VideoCreationPanel(QWidget):
                 QMessageBox.critical(self, "UI 构建失败", str(ue))
                 return
             self.gen_all_btn.setEnabled(True)
+            self.gen_all_voice_btn.setEnabled(True)
 
         except Exception as e:
             import traceback
@@ -604,11 +774,11 @@ class VideoCreationPanel(QWidget):
             QMessageBox.warning(self, "提示", "分镜标题不能为空。")
             return
 
-        new_scene = {"title": title, "prompt": "请描述这个分镜的画面内容", "image": "", "video": ""}
+        new_scene = {"title": title, "prompt": "请描述这个分镜的画面内容", "voice": "", "image": "", "video": ""}
         scene_index = len(self._scenes)
         self._scenes.append(new_scene)
 
-        sw = SceneWidget(scene_index, title, new_scene["prompt"], panel=self)
+        sw = SceneWidget(scene_index, title, new_scene["prompt"], new_scene["voice"], panel=self)
         sw.gen_img_btn.clicked.connect(
             lambda checked, idx=scene_index: self._generate_scene_image(idx))
         sw.gen_video_btn.clicked.connect(
@@ -616,6 +786,7 @@ class VideoCreationPanel(QWidget):
         self.scene_layout.insertWidget(self.scene_layout.count() - 1, sw)
         self._scene_widgets.append(sw)
         self.gen_all_btn.setEnabled(True)
+        self.gen_all_voice_btn.setEnabled(True)
         print(f"[视频创作] 手动添加分镜: {title}")
 
     def _build_scene_ui(self):
@@ -626,7 +797,7 @@ class VideoCreationPanel(QWidget):
         self._scene_widgets.clear()
 
         for i, scene in enumerate(self._scenes):
-            sw = SceneWidget(i, scene["title"], scene["prompt"], panel=self)
+            sw = SceneWidget(i, scene["title"], scene["prompt"], scene.get("voice", ""), panel=self)
             sw.gen_img_btn.clicked.connect(
                 lambda checked, idx=i: self._generate_scene_image(idx))
             sw.gen_video_btn.clicked.connect(
@@ -789,6 +960,17 @@ class VideoCreationPanel(QWidget):
         sw.img_status.setStyleSheet("color: #ff4757; font-size: 11px;")
         QMessageBox.critical(self, "生图失败", f"分镜{scene_index+1}: {msg}")
 
+    def _generate_all_voices(self):
+        """为所有分镜生成音频"""
+        total = len(self._scene_widgets)
+        if total == 0:
+            return
+        for i in range(total):
+            sw = self._scene_widgets[i]
+            text = sw.voice_edit.toPlainText().strip()
+            if text and not sw.generated_voice_path:
+                self._generate_scene_voice(i)
+
     # ═══════════════ 全部分镜生图 ═══════════════
 
     def _generate_all_images(self):
@@ -801,6 +983,113 @@ class VideoCreationPanel(QWidget):
             self.progress_bar.setValue(int((i / total) * 100))
             self._generate_scene_image(i)
         # Note: this fires them all in parallel due to QThread; progress is approximate
+
+    # ═══════════════ 单分镜语音生成 ═══════════════
+
+    def _generate_scene_voice(self, scene_index: int):
+        sw = self._scene_widgets[scene_index]
+        text = sw.voice_edit.toPlainText().strip()
+        if not text:
+            QMessageBox.warning(self, "提示", "口播文案为空。")
+            return
+
+        sw.gen_voice_btn.setEnabled(False)
+        sw.gen_voice_btn.setText("生成中…")
+        sw.voice_status.setText("⏳")
+        sw.voice_status.setStyleSheet("color: #ffa502; font-size: 11px;")
+
+        voice_role = self._settings.get("mpt_voice_role", "zh-CN-XiaoxiaoNeural")
+
+        class VoiceWorker(QThread):
+            done_signal = pyqtSignal(int, str)
+            err_signal = pyqtSignal(int, str)
+
+            def __init__(self, text, voice_role, scene_index):
+                super().__init__()
+                self.text = text
+                self.voice_role = voice_role
+                self.scene_index = scene_index
+
+            def run(self):
+                try:
+                    from core_modules.mpt_services.voice import VoiceService
+                    svc = VoiceService(self.voice_role)
+                    out = svc.generate_speech(self.text)
+                    self.done_signal.emit(self.scene_index, out)
+                except Exception as e:
+                    self.err_signal.emit(self.scene_index, str(e))
+
+        worker = VoiceWorker(text, voice_role, scene_index)
+        worker.done_signal.connect(self._on_voice_done)
+        worker.err_signal.connect(self._on_voice_error)
+        self._workers.append(worker)
+        worker.start()
+
+    # ═══════════════ 音频播放器全局信号处理 ═══════════════
+
+    def _on_global_position_changed(self, position):
+        if self._current_playing_scene < 0:
+            return
+        sw = self._scene_widgets[self._current_playing_scene]
+        if sw.voice_slider.isSliderDown():
+            return
+        sw.voice_slider.blockSignals(True)
+        sw.voice_slider.setValue(position)
+        sw.voice_slider.blockSignals(False)
+        # 更新当前时间
+        duration = self._audio_player.duration()
+        cur = self._format_duration(position)
+        dur = self._format_duration(duration)
+        sw.voice_duration_label.setText(f"{cur} / {dur}")
+
+    def _on_global_duration_changed(self, duration):
+        if self._current_playing_scene < 0:
+            return
+        sw = self._scene_widgets[self._current_playing_scene]
+        sw.voice_slider.blockSignals(True)
+        sw.voice_slider.setRange(0, duration)
+        sw.voice_slider.blockSignals(False)
+        sw.voice_duration_label.setText(f"00:00 / {self._format_duration(duration)}")
+
+    def _on_global_playback_changed(self, state):
+        if self._current_playing_scene < 0:
+            return
+        sw = self._scene_widgets[self._current_playing_scene]
+        if state == self._audio_player.PlaybackState.PlayingState:
+            sw.play_pause_btn.setText("⏸")
+        else:
+            sw.play_pause_btn.setText("▶")
+            if state == self._audio_player.PlaybackState.StoppedState:
+                self._audio_player.setPosition(0)
+                sw.voice_slider.blockSignals(True)
+                sw.voice_slider.setValue(0)
+                sw.voice_slider.blockSignals(False)
+
+    def _on_voice_done(self, scene_index: int, audio_path: str):
+        sw = self._scene_widgets[scene_index]
+        sw.generated_voice_path = audio_path
+        self._scenes[scene_index]["voice"] = audio_path
+        sw.gen_voice_btn.setEnabled(True)
+        sw.gen_voice_btn.setText("🔊 重新生成")
+        sw.play_pause_btn.setVisible(True)
+        sw.voice_slider.setVisible(True)
+        sw.voice_duration_label.setVisible(True)
+        sw.voice_slider.setValue(0)
+        sw.voice_duration_label.setText("00:00 / 00:00")
+        sw.play_pause_btn.setText("▶")
+        sw.voice_status.setText("✅")
+        sw.voice_status.setStyleSheet("color: #2ed573; font-size: 11px;")
+
+    def _on_voice_error(self, scene_index: int, msg: str):
+        sw = self._scene_widgets[scene_index]
+        sw.gen_voice_btn.setEnabled(True)
+        sw.gen_voice_btn.setText("🔊 生成音频")
+        sw.play_pause_btn.setVisible(False)
+        sw.voice_slider.setVisible(False)
+        sw.voice_duration_label.setVisible(False)
+        sw.voice_status.setText("❌")
+        sw.voice_status.setStyleSheet("color: #ff4757; font-size: 11px;")
+        QMessageBox.critical(self, "语音生成失败", f"分镜{scene_index+1}: {msg}")
 
     # ═══════════════ 视频生成 ═══════════════
 
@@ -933,17 +1222,16 @@ class VideoCreationPanel(QWidget):
 
     def _create_video(self):
         """用 FFmpeg 将所有分镜视频片段拼接为一个完整视频"""
-        video_segments = []
+        segments_with_audio = []
         for sw in self._scene_widgets:
             if sw.generated_video_path and os.path.exists(sw.generated_video_path):
-                video_segments.append(sw.generated_video_path)
+                segments_with_audio.append({
+                    "video": sw.generated_video_path,
+                    "voice": sw.generated_voice_path if (sw.generated_voice_path and os.path.exists(sw.generated_voice_path)) else None,
+                })
 
-        if not video_segments:
-            QMessageBox.warning(self, "提示", "没有任何视频片段可拼接，请先生成视频。")
-            return
-
-        if len(video_segments) == 1:
-            QMessageBox.information(self, "提示", "只有一个视频片段，无需拼接。")
+        if not segments_with_audio:
+            QMessageBox.warning(self, "提示", "没有任何视频片段可拼接，请先生成或上传视频。")
             return
 
         output_path, _ = QFileDialog.getSaveFileName(
@@ -970,57 +1258,98 @@ class VideoCreationPanel(QWidget):
                     import subprocess
                     import tempfile
 
-                    # 方法：用 FFmpeg concat demuxer（各段编码必须一致）
-                    # 先创建临时文件列表
+                    # Step 1: 逐个处理分镜 → 静音原声 + 叠加语音配音
+                    processed = []
+                    total = len(self.segments)
+                    for i, seg in enumerate(self.segments):
+                        video_path = seg["video"]
+                        voice_path = seg["voice"]
+                        out = os.path.join(tempfile.gettempdir(), f"dy_seg_{i}_{os.getpid()}.mp4")
+
+                        if voice_path:
+                            # 视频流保留，音频用分镜配音（-shortest 以配音为准截断/延长视频）
+                            cmd = [
+                                "ffmpeg", "-y",
+                                "-i", video_path,
+                                "-i", voice_path,
+                                "-map", "0:v",
+                                "-map", "1:a",
+                                "-c:v", "copy",
+                                "-c:a", "aac",
+                                "-shortest",
+                                out
+                            ]
+                        else:
+                            # 无配音：静音原视频
+                            cmd = [
+                                "ffmpeg", "-y",
+                                "-i", video_path,
+                                "-an",
+                                "-c:v", "copy",
+                                out
+                            ]
+
+                        print(f"[创作] 处理分镜 {i+1}/{total}")
+                        result = subprocess.run(cmd, capture_output=True, text=True)
+                        if result.returncode != 0:
+                            print(f"[创作] 分镜 {i+1} 处理失败: {result.stderr.decode()[-300:]}")
+                            import shutil
+                            shutil.copy2(video_path, out)
+                        processed.append(out)
+                        self.progress_signal.emit(int((i + 1) / total * 70))
+
+                    # Step 2: 拼接所有分镜
+                    self.progress_signal.emit(75)
                     list_path = os.path.join(tempfile.gettempdir(), "dy_concat_list.txt")
                     with open(list_path, "w", encoding="utf-8") as f:
-                        for seg in self.segments:
-                            f.write(f"file '{os.path.normpath(seg).replace(os.sep, '/')}'\n")
+                        for p in processed:
+                            f.write(f"file '{p.replace(os.sep, '/')}'\n")
 
-                    self.progress_signal.emit(30)
-                    # 执行 FFmpeg concat
                     result = subprocess.run(
                         [
                             "ffmpeg", "-y",
                             "-f", "concat", "-safe", "0",
                             "-i", list_path,
-                            "-c", "copy",
+                            "-c:v", "libx264", "-preset", "fast",
+                            "-c:a", "aac",
                             self.output_path
                         ],
-                        capture_output=True, timeout=300
+                        capture_output=True, timeout=600
                     )
                     os.remove(list_path)
 
-                    self.progress_signal.emit(90)
-
-                    if result.returncode != 0:
-                        raise RuntimeError(result.stderr.decode("utf-8", errors="replace"))
+                    # 清理临时文件
+                    for p in processed:
+                        try:
+                            os.remove(p)
+                        except Exception:
+                            pass
 
                     self.progress_signal.emit(100)
+
+                    if result.returncode != 0:
+                        raise RuntimeError(result.stderr.decode("utf-8", errors="replace")[-500:])
+
                     self.finished_signal.emit(self.output_path)
+
                 except subprocess.TimeoutExpired:
                     self.error_signal.emit("视频拼接超时，请检查 FFmpeg 是否安装。")
                 except Exception as e:
+                    import traceback
+                    traceback.print_exc()
                     self.error_signal.emit(f"拼接失败: {e}")
 
         def on_done(path):
             self.create_video_btn.setEnabled(True)
             self.create_video_btn.setText("创作视频")
             QMessageBox.information(self, "创作完成", f"视频已保存到:\n{path}")
-            # 用系统播放器打开
-            if sys.platform == "darwin":
-                subprocess.run(["open", path])
-            elif sys.platform == "win32":
-                os.startfile(path)
-            else:
-                subprocess.run(["xdg-open", path])
 
         def on_error(msg):
             self.create_video_btn.setEnabled(True)
             self.create_video_btn.setText("创作视频")
             QMessageBox.critical(self, "拼接失败", msg)
 
-        worker = ConcatWorker(video_segments, output_path)
+        worker = ConcatWorker(segments_with_audio, output_path)
         worker.finished_signal.connect(on_done)
         worker.error_signal.connect(on_error)
         worker.progress_signal.connect(self.progress_bar.setValue)

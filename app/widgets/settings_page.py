@@ -2,39 +2,15 @@
 
 import os
 import json
-import urllib.request
-import urllib.error
 import functools
 
 from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QLabel, QLineEdit, QPushButton, QGroupBox, QFormLayout,
-    QCheckBox, QFileDialog, QMessageBox, QComboBox,
+    QCheckBox, QFileDialog, QMessageBox, QComboBox, QSpinBox,
     QFrame, QScrollArea,
 )
-
-
-def _extract_image_urls(data: dict) -> list:
-    """自动从各种 API 返回中提取图片 URL 列表"""
-    for path in ["images", "data.image_urls", "data.images", "data.photos", "result.photos", "output.images"]:
-        images = data
-        for key in path.split("."):
-            images = images.get(key) if isinstance(images, dict) else None
-            if images is None:
-                break
-        if isinstance(images, list) and len(images) > 0:
-            urls = []
-            for item in images:
-                if isinstance(item, dict):
-                    url = item.get("url") or item.get("image_url") or ""
-                    if url:
-                        urls.append(url)
-                elif isinstance(item, str) and item.startswith("http"):
-                    urls.append(item)
-            if urls:
-                return urls
-    return []
 
 
 class CdpSettingsTab(QWidget):
@@ -194,6 +170,74 @@ class ApiSettingsTab(QWidget):
         stt_form.addRow("API 密钥:", stt_input)
         layout.addWidget(stt_group)
 
+        # AI 视频配置
+        mpt_group = QGroupBox("AI 视频 (MoneyPrinterTurbo)")
+        mpt_form = QFormLayout(mpt_group)
+        mpt_form.setSpacing(12)
+
+        # 语音角色
+        voice_key = "mpt_voice_role"
+        voice_combo = QComboBox()
+        voice_combo.setMinimumHeight(36)
+        voices = [
+            ("zh-CN-XiaoxiaoNeural", "晓晓 - 女声"),
+            ("zh-CN-YunxiNeural", "云希 - 男声"),
+            ("zh-CN-YunyangNeural", "云扬 - 男声"),
+            ("zh-CN-XiaoyiNeural", "小艺 - 女声"),
+            ("zh-CN-YunyeNeural", "云野 - 男声"),
+            ("en-US-JennyNeural", "Jenny - 英女声"),
+            ("en-US-GuyNeural", "Guy - 英男声"),
+        ]
+        current_voice = self.settings.get(voice_key, "zh-CN-XiaoxiaoNeural")
+        for role, desc in voices:
+            voice_combo.addItem(f"{role} ({desc})", role)
+            if role == current_voice:
+                voice_combo.setCurrentIndex(voice_combo.count() - 1)
+        voice_combo.currentIndexChanged.connect(
+            lambda idx: (self.settings.update({voice_key: voice_combo.currentData()}), self._save()))
+        mpt_form.addRow("语音角色:", voice_combo)
+
+        # 素材源
+        source_key = "mpt_video_source"
+        source_combo = QComboBox()
+        source_combo.setMinimumHeight(36)
+        source_combo.addItem("Pexels (推荐)", "pexels")
+        source_combo.addItem("Pixabay", "pixabay")
+        current_source = self.settings.get(source_key, "pexels")
+        for i in range(source_combo.count()):
+            if source_combo.itemData(i) == current_source:
+                source_combo.setCurrentIndex(i)
+                break
+        source_combo.currentIndexChanged.connect(
+            lambda idx: (self.settings.update({source_key: source_combo.currentData()}), self._save()))
+        mpt_form.addRow("素材源:", source_combo)
+
+        # Pexels API Key
+        pexels_key = "pexels_api_key"
+        pexels_input = QLineEdit(self.settings.get(pexels_key, ""))
+        pexels_input.setPlaceholderText("Pexels API Key (可选，公开接口有限制)")
+        pexels_input.setEchoMode(QLineEdit.EchoMode.Password)
+        pexels_input.setMinimumHeight(36)
+        pexels_input.textChanged.connect(lambda t, b=pexels_input, k=pexels_key: self._on_ai_field_change(b, k))
+        mpt_form.addRow("Pexels Key:", pexels_input)
+
+        # 视频格式
+        format_key = "mpt_video_format"
+        format_combo = QComboBox()
+        format_combo.setMinimumHeight(36)
+        format_combo.addItem("9:16 竖屏 (1080x1920)", "9:16")
+        format_combo.addItem("16:9 横屏 (1920x1080)", "16:9")
+        current_format = self.settings.get(format_key, "9:16")
+        for i in range(format_combo.count()):
+            if format_combo.itemData(i) == current_format:
+                format_combo.setCurrentIndex(i)
+                break
+        format_combo.currentIndexChanged.connect(
+            lambda idx: (self.settings.update({format_key: format_combo.currentData()}), self._save()))
+        mpt_form.addRow("视频格式:", format_combo)
+
+        layout.addWidget(mpt_group)
+
         layout.addStretch()
 
         scroll.setWidget(content)
@@ -280,90 +324,59 @@ class ApiSettingsTab(QWidget):
         class TestWorker(QThread):
             result_signal = pyqtSignal(bool, str)
 
-            def __init__(self, base_url, api_key, model_name, model_type, settings, prefix):
+            def __init__(self, base_url, api_key, model_name, model_type):
                 super().__init__()
                 self.base_url = base_url.rstrip("/")
                 self.api_key = api_key
                 self.model_name = model_name
                 self.model_type = model_type
-                self.settings = settings
-                self.prefix = prefix
 
             def run(self):
                 try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+
                     if self.model_type == "image":
-                        # 图片模型：标准 OpenAI 格式 POST
-                        url = f"{self.base_url}/images/generations"
-                        print(f"[测试] 图片模型测试: {self.model_name}")
-                        body = json.dumps({
-                            "model": self.model_name,
-                            "prompt": "a simple red circle on white background",
-                            "n": 1, "size": "512x512", "image_size": "512x512",
-                            "num_inference_steps": 10, "guidance_scale": 7.5, "batch_size": 1,
-                        }).encode()
-                        req = urllib.request.Request(url, data=body, method="POST")
-                        req.add_header("Authorization", f"Bearer {self.api_key}")
-                        req.add_header("Content-Type", "application/json")
-                        print(f"[测试] POST {url}")
-                        print(f"[测试] Body keys: {list(json.loads(body).keys())}")
-                        resp = urllib.request.urlopen(req, timeout=30)
-                        print(f"[测试] 响应状态: {resp.status}")
-                        raw = resp.read()
-                        print(f"[测试] 响应长度: {len(raw)} bytes")
-                        print(f"[测试] 响应预览: {raw[:300]}")
-                        data = json.loads(raw)
-                        urls = _extract_image_urls(data)
-                        img_url = urls[0] if urls else ""
+                        print(f"[测试] 图片生成测试: {self.model_name}")
+                        resp = client.images.generate(
+                            model=self.model_name,
+                            prompt="a simple red circle on white background",
+                            n=1,
+                            size="512x512",
+                        )
+                        img_url = ""
+                        if hasattr(resp, 'data') and resp.data:
+                            img_url = resp.data[0].url or ""
+                        elif hasattr(resp, 'images') and resp.images:
+                            img_url = resp.images[0].url or ""
+
                         if img_url:
                             msg = f"图片生成成功！\n模型: {self.model_name}\n图片URL: {img_url[:80]}..."
                             print(f"[测试] ✅ {msg}")
                             self.result_signal.emit(True, msg)
-                            return
                         else:
-                            self.result_signal.emit(False, f"未获取到图片URL，返回: {json.dumps(data)[:200]}")
-                            return
+                            self.result_signal.emit(False, f"未获取到图片URL: {resp}")
                     else:
-                        # 文字/视频模型：GET /models
-                        url = f"{self.base_url}/models"
-                    print(f"[测试] 请求 URL: {url}")
-                    print(f"[测试] Authorization: Bearer {self.api_key[:8]}...")
-                    req = urllib.request.Request(url, method="GET")
-                    req.add_header("Authorization", f"Bearer {self.api_key}")
-                    req.add_header("Content-Type", "application/json")
-                    resp = urllib.request.urlopen(req, timeout=10)
-                    print(f"[测试] 响应状态: {resp.status}")
-                    raw = resp.read()
-                    print(f"[测试] 响应长度: {len(raw)} bytes")
-                    data = json.loads(raw)
-                    model_ids = [m["id"] for m in data.get("data", [])]
-                    print(f"[测试] 模型列表 ({len(model_ids)} 个): {model_ids[:10]}...")
-                    if model_ids:
-                        found = self.model_name in model_ids
-                        info = f"模型 '{self.model_name}' {'✓ 可用' if found else '✗ 未找到'}"
-                        msg = f"连接成功！{len(model_ids)} 个模型。{info}"
+                        print(f"[测试] 文字模型测试: {self.model_name}")
+                        resp = client.chat.completions.create(
+                            model=self.model_name,
+                            messages=[{"role": "user", "content": "Hi"}],
+                            max_tokens=5,
+                        )
+                        content = resp.choices[0].message.content
+                        msg = f"连接成功！\n模型: {self.model_name}\n响应: {content}"
                         print(f"[测试] ✅ {msg}")
                         self.result_signal.emit(True, msg)
-                    else:
-                        print(f"[测试] ✅ 连接成功！但未返回模型列表。")
-                        self.result_signal.emit(True, "连接成功！但未返回模型列表。")
-                except urllib.error.HTTPError as e:
-                    body = ""
-                    try:
-                        body = e.read().decode()[:200]
-                    except Exception:
-                        pass
-                    msg = f"HTTP {e.code}: {e.reason}\n{body}"
-                    print(f"[测试] ❌ {msg}")
-                    self.result_signal.emit(False, msg)
+
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
-                    msg = f"连接失败: {type(e).__name__}: {str(e)[:200]}"
+                    msg = f"连接失败: {type(e).__name__}: {str(e)[:300]}"
                     print(f"[测试] ❌ {msg}")
                     self.result_signal.emit(False, msg)
 
-        worker = TestWorker(base, key, model, model_type, self.settings, prefix)
-        self._test_workers.append(worker)  # 保持引用防止 GC 回收
+        worker = TestWorker(base, key, model, model_type)
+        self._test_workers.append(worker)
         worker.result_signal.connect(
             lambda success, msg: self._on_test_result(success, msg, test_btn, test_status))
         worker.start()
