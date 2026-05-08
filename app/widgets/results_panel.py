@@ -122,10 +122,12 @@ class ResultsPanel(QWidget):
         total_matched = sum(len(v.get("matched_users") or []) for v in videos)
 
         # 概要标签
+        platform = self._data.get("platform", "未知")
+        platform_icon = "🎵" if platform == "抖音" else "📕"
         kw_str = " | ".join(kw) if kw else "—"
         match_info = f"已匹配 {total_matched} 个用户" if kw else f"{total_comments} 条评论"
         self.summary_label.setText(
-            f"搜索: {self._data.get('search_term','?')}  |  "
+            f"{platform_icon} {platform}  |  搜索: {self._data.get('search_term','?')}  |  "
             f"视频: {len(videos)}  |  {match_info}"
         )
 
@@ -164,10 +166,12 @@ class ResultsPanel(QWidget):
 
             # 评论（无关键字模式）
             for idx_c, c in enumerate(v.get("comments", [])):
+                # 支持 username (抖音) 和 author (小红书) 两种字段
+                username = c.get("username") or c.get("author", "?")
                 cmt = QTreeWidgetItem(video_item, [
-                    f"{c.get('username','?')}",
+                    f"{username}",
                     c.get("content", "")[:35],
-                    c.get("time", ""),
+                    c.get("time", "") or c.get("comment_time", ""),
                 ])
                 cmt.setData(0, Qt.ItemDataRole.UserRole, {"type": "comment", "data": c})
                 if idx_c > 80 and len(v.get("comments", [])) > 120:
