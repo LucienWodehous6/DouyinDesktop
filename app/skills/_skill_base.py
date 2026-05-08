@@ -1,4 +1,5 @@
 """Skill 基类和结果数据类"""
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
