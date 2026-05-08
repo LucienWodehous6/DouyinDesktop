@@ -91,30 +91,28 @@ def start_chrome_cdp(chrome_path: str, port: int = 9222, user_data_dir: str = ""
         return False
 
 
-def open_login_page(cdp_url: str):
-    """通过 Playwright CDP 打开首页"""
+def open_login_pages(cdp_url: str):
+    """通过 Playwright CDP 打开抖音和小红书登录页面"""
+    platforms = [
+        ("抖音", "https://www.douyin.com/"),
+        ("小红书", "https://www.xiaohongshu.com/"),
+    ]
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser = p.chromium.connect_over_cdp(cdp_url)
-            if browser.contexts:
-                ctx = browser.contexts[0]
-                pages = ctx.pages
-                if pages:
-                    page = pages[0]
-                    page.goto("https://www.douyin.com/", wait_until="domcontentloaded")
-                    return True
-            # 没有页面则创建
-            ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-            page = ctx.new_page()
-            page.goto("https://www.douyin.com/", wait_until="domcontentloaded")
+            for name, url in platforms:
+                ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+                page = ctx.new_page()
+                page.goto(url, wait_until="domcontentloaded")
             return True
     except Exception:
         return False
 
 
-def extract_cookies_cdp(cdp_url: str) -> list | None:
-    """通过 Playwright CDP 提取浏览器 Cookies"""
+def extract_cookies_cdp(cdp_url: str):
+    """通过 Playwright CDP 提取抖音和小红书的浏览器 Cookies"""
+    target_domains = ["douyin.com", "xiaohongshu.com"]
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
@@ -125,7 +123,7 @@ def extract_cookies_cdp(cdp_url: str) -> list | None:
                 # 过滤目标站点 Cookie
                 target_cookies = [
                     c for c in all_cookies
-                    if "douyin.com" in c.get("domain", "")
+                    if any(domain in c.get("domain", "") for domain in target_domains)
                 ]
                 if target_cookies:
                     # 转为可序列化格式
@@ -366,7 +364,7 @@ class EnvironmentPanel(QWidget):
             QMessageBox.warning(self, "错误", "CDP 未连接，请先启动 Chrome。")
             return
 
-        success = open_login_page(cdp_url)
+        success = open_login_pages(cdp_url)
         if not success:
             QMessageBox.warning(self, "错误", "无法通过 CDP 打开页面。")
             return
@@ -375,7 +373,7 @@ class EnvironmentPanel(QWidget):
         self.login_btn.setVisible(False)
         self.complete_login_btn.setVisible(True)
         self.hint.setText(
-            "请在 Chrome 浏览器中手动完成账号登录（扫码/手机验证）。\n"
+            "请在 Chrome 浏览器中手动完成抖音和小红书的账号登录（扫码/手机验证）。\n"
             "登录成功后，点击下方「完成登录，保存 Cookie」。"
         )
         QMessageBox.information(
@@ -399,7 +397,10 @@ class EnvironmentPanel(QWidget):
 
         # 保存
         os.makedirs(COOKIE_DIR, exist_ok=True)
-        data = {"cookies": cookies, "origins": ["https://www.douyin.com"]}
+        data = {
+            "cookies": cookies,
+            "origins": ["https://www.douyin.com", "https://www.xiaohongshu.com"]
+        }
         with open(DEFAULT_COOKIE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
