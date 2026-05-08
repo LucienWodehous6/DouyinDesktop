@@ -585,6 +585,37 @@ class ScriptPanel(QWidget):
         topic = self.prompt_edit.toPlainText().strip()[:50]
         self._run_seo_optimize(text, topic)
 
+    def _run_seo_optimize(self, script_text: str, topic: str):
+        """触发 SEO 优化流程"""
+        api_key = self._settings.get("openai_text_api_key") or self._settings.get("openai_api_key") or os.environ.get("OPENAI_API_KEY", "")
+        api_base = self._settings.get("openai_text_api_base") or self._settings.get("openai_api_base") or os.environ.get("OPENAI_API_BASE", "https://api.deepseek.com/v1")
+        model = self._settings.get("openai_text_model") or self._settings.get("openai_model") or os.environ.get("OPENAI_MODEL", "deepseek-chat")
+
+        if not api_key:
+            # 无 API key，直接显示原剧本
+            self._show_final_result(script_text)
+            return
+
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(50)
+        self.progress_label.setVisible(True)
+        self.progress_label.setText("正在优化 SEO...")
+        self.result_label.setText("AI 正在优化标题和标签，请稍候...")
+        self.gen_btn.setEnabled(False)
+        self.save_btn.setEnabled(False)
+        self.modify_btn.setEnabled(False)
+
+        self._worker = SEOOptimizeWorker(
+            script_text=script_text,
+            api_key=api_key,
+            api_base=api_base,
+            model=model,
+        )
+        self._worker.chunk_signal.connect(self._on_seo_chunk)
+        self._worker.result_signal.connect(self._on_seo_result)
+        self._worker.error_signal.connect(self._on_seo_error)
+        self._worker.start()
+
     def _on_modify_result(self, text: str):
         print(f"[剧本] === 修改完成 === ({len(text)} 字符)")
         self._last_result = text
