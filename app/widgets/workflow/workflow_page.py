@@ -158,11 +158,34 @@ class WorkflowPage(QWidget):
         self.log_view.clear()
         self.log_view.append("[Pipeline] 开始执行...")
 
+        # 从 settings 读取 API 配置
+        api_key = self._settings.get("openai_api_key", "")
+        api_base = self._settings.get("openai_text_api_base", "https://api.deepseek.com/v1")
+        model = self._settings.get("openai_text_model", "deepseek-chat")
+
         agents = [
-            {"name": "CDO", "config": {"keyword": "测试", "platform": "抖音", "count": 10}},
-            {"name": "CCO", "config": {"style": "neutral"}},
-            {"name": "SEO", "config": {}},
-            {"name": "CMO", "config": {"target_platform": "抖音"}},
+            {"Name": "CDO", "config": {
+                "keyword": "测试",
+                "platform": "抖音",
+                "count": 10,
+            }},
+            {"Name": "CCO", "config": {
+                "api_key": api_key,
+                "api_base": api_base,
+                "model": model,
+                "style": "neutral",
+            }},
+            {"Name": "SEO", "config": {
+                "api_key": api_key,
+                "api_base": api_base,
+                "model": model,
+            }},
+            {"Name": "CMO", "config": {
+                "api_key": api_key,
+                "api_base": api_base,
+                "model": model,
+                "target_platform": "抖音",
+            }},
         ]
 
         output_dir = os.path.join(os.path.expanduser("~"), ".dy", "workflow_output")
