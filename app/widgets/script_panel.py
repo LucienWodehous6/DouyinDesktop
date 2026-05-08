@@ -616,6 +616,47 @@ class ScriptPanel(QWidget):
         self._worker.error_signal.connect(self._on_seo_error)
         self._worker.start()
 
+    def _on_seo_chunk(self, text: str):
+        """SEO 优化流式追加"""
+        if not hasattr(self, "_seo_result_buf"):
+            self._seo_result_buf = ""
+        self._seo_result_buf += text
+        html = self._render_markdown(self._seo_result_buf)
+        self.result_label.setText(html)
+        self.result_scroll.verticalScrollBar().setValue(
+            self.result_scroll.verticalScrollBar().maximum()
+        )
+
+    def _on_seo_result(self, text: str):
+        """SEO 优化完成"""
+        print(f"[剧本] === SEO 优化完成 === ({len(text)} 字符)")
+        self._last_result = text
+        self._hide_progress()
+        self.gen_btn.setEnabled(True)
+        self.save_btn.setEnabled(True)
+        self.modify_btn.setEnabled(True)
+        self.gen_btn.setText("✨ AI 生成剧本")
+        # 直接显示优化后结果
+        self._show_final_result(text)
+
+    def _on_seo_error(self, msg: str):
+        """SEO 优化失败，回退到原剧本"""
+        print(f"[剧本] === SEO 优化失败 === {msg}")
+        self._hide_progress()
+        self.result_label.setText(
+            f"<p style='color:#f85149'>⚠️ SEO 优化失败，显示原始剧本：</p>"
+            f"<pre style='color:#c9d1d9'>{self._last_result[:500]}</pre>"
+        )
+        self.gen_btn.setEnabled(True)
+        self.save_btn.setEnabled(True)
+        self.modify_btn.setEnabled(True)
+
+    def _show_final_result(self, text: str):
+        """展示最终结果（渲染 markdown）"""
+        html = self._render_markdown(text)
+        self.result_label.setText(html)
+        self.result_scroll.verticalScrollBar().setValue(0)
+
     def _on_modify_result(self, text: str):
         print(f"[剧本] === 修改完成 === ({len(text)} 字符)")
         self._last_result = text
