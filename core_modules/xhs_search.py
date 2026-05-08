@@ -12,6 +12,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from playwright.sync_api import sync_playwright
 
+# 从子包导入定位和操作函数
+from core_modules.xhs.locators import (
+    SEARCH_BOX_STRATEGIES,
+    SEARCH_BTN_STRATEGIES,
+    find_search_box,
+)
+from core_modules.xhs.actions import search_keyword
+
 
 def find_xiaohongshu_page(browser) -> object:
     """在已连接的浏览器中查找小红书页面（优先非搜索结果页）"""
@@ -37,77 +45,6 @@ def get_or_create_xhs_page(browser, open_url: str = "https://www.xiaohongshu.com
     page.goto(open_url, wait_until="domcontentloaded")
     time.sleep(1)
     return page, True
-
-
-# ─────────────────────────────────────────
-#  搜索框定位策略（按优先级尝试）
-# ─────────────────────────────────────────
-SEARCH_BOX_STRATEGIES = [
-    # 1. placeholder 模糊匹配（最稳定）
-    lambda p: p.locator('input[placeholder*="搜索"]').first,
-    # 2. aria-label
-    lambda p: p.locator('input[aria-label*="搜索"]').first,
-    # 3. data-testid
-    lambda p: p.locator('[data-testid="search_input"]').first,
-    # 4. 搜索容器下的 input
-    lambda p: p.locator('[class*="search"] input').first,
-    lambda p: p.locator('[class*="Search"] input').first,
-    # 5. 最后一个 input 且在 header 区域
-    lambda p: p.locator('header input[type="text"]').first,
-    lambda p: p.locator('header input').first,
-]
-
-SEARCH_BTN_STRATEGIES = [
-    # 1. button with search text/icon
-    lambda p: p.locator('button[aria-label*="搜索"]').first,
-    lambda p: p.locator('[class*="search"] button').first,
-    lambda p: p.locator('[class*="Search"] button').first,
-    # 2. 回车作为备选
-]
-
-
-def find_search_box(page) -> object:
-    """多策略定位搜索框"""
-    for i, strategy in enumerate(SEARCH_BOX_STRATEGIES):
-        try:
-            el = strategy(page)
-            if el.count() > 0 and el.is_visible():
-                print(f"  [定位] 搜索框策略 {i+1} 成功")
-                return el
-        except Exception:
-            pass
-    raise RuntimeError("未找到搜索框，请手动定位或检查页面结构")
-
-
-def search_keyword(page, keyword: str):
-    """在页面输入关键词并搜索"""
-    search_box = find_search_box(page)
-    search_box.click()
-    time.sleep(0.2)
-
-    # 模拟人工逐字输入
-    for char in keyword:
-        search_box.type(char, delay=random.uniform(80, 200))
-        time.sleep(random.uniform(0.05, 0.15))
-
-    # 优先尝试点击搜索按钮，否则回车
-    searched = False
-    for i, strategy in enumerate(SEARCH_BTN_STRATEGIES):
-        try:
-            btn = strategy(page)
-            if btn.count() > 0 and btn.is_visible():
-                btn.click()
-                searched = True
-                print(f"  [定位] 搜索按钮策略 {i+1} 点击")
-                break
-        except Exception:
-            pass
-
-    if not searched:
-        page.keyboard.press("Enter")
-        print("  [定位] 使用回车搜索")
-
-    time.sleep(1.5)
 
 
 # ─────────────────────────────────────────
