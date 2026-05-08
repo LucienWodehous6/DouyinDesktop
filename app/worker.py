@@ -13,7 +13,6 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 class DataWorker(QThread):
     log_signal = pyqtSignal(str, str)       # (message, level)
-    progress_signal = pyqtSignal(int)        # 0-100
     finished_signal = pyqtSignal(str)        # result_file_path
     error_signal = pyqtSignal(str)           # error_message
 
