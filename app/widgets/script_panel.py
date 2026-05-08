@@ -629,6 +629,9 @@ class ScriptPanel(QWidget):
 
     def _on_seo_result(self, text: str):
         """SEO 优化完成"""
+        # Clear streaming buffer after completion
+        if hasattr(self, "_seo_result_buf"):
+            del self._seo_result_buf
         print(f"[剧本] === SEO 优化完成 === ({len(text)} 字符)")
         self._last_result = text
         self._hide_progress()
