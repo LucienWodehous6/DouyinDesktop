@@ -88,10 +88,11 @@ class MainWindow(QMainWindow):
         nav_items = [
             ("🔍", "搜索采集"),
             ("🎬", "剧本生成"),
-            ("🎥", "视频创作"),
+            ("🛠", "抖音工具"),
             ("📈", "视频分析"),
             ("📟", "运行日志"),
             ("📊", "结果查看"),
+            ("⚡", "协作流"),
         ]
         for icon, text in nav_items:
             btn = SidebarButton(icon, text)
@@ -101,9 +102,9 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addStretch()
 
-        # 设置按钮（导航到设置页 index=6）
+        # 设置按钮（导航到设置页 index=7）
         settings_btn = SidebarButton("⚙", "设置")
-        settings_btn.clicked.connect(lambda: self._switch_page(6))
+        settings_btn.clicked.connect(lambda: self._switch_page(7))
         sidebar_layout.addWidget(settings_btn)
 
         # 底部版本
@@ -132,9 +133,9 @@ class MainWindow(QMainWindow):
         self.script_panel = ScriptPanel(self.task_store, self.settings)
         self.stack.addWidget(self.script_panel)
 
-        from app.widgets.video_creation_panel import VideoCreationPanel
-        self.video_panel = VideoCreationPanel(self.task_store, self.settings)
-        self.stack.addWidget(self.video_panel)
+        from app.widgets.dy_tools_panel import DyToolsPanel
+        self.dy_tools_panel = DyToolsPanel(self.task_store, self.settings)
+        self.stack.addWidget(self.dy_tools_panel)
 
         from app.widgets.video_analysis_panel import VideoAnalysisPanel
         self.video_analysis_panel = VideoAnalysisPanel(self.task_store, self.settings)
@@ -143,8 +144,15 @@ class MainWindow(QMainWindow):
         self.progress_panel = ProgressPanel()
         self.stack.addWidget(self.progress_panel)
 
+        # 等 progress_panel 创建后再连接信号
+        self.dy_tools_panel.log_signal.connect(self.progress_panel.log)
+
         self.results_panel = ResultsPanel(self.task_store)
         self.stack.addWidget(self.results_panel)
+
+        from app.widgets.workflow.workflow_page import WorkflowPage
+        self.workflow_page = WorkflowPage(self.task_store, self.settings)
+        self.stack.addWidget(self.workflow_page)
 
         self.settings_page = SettingsPage(self.settings)
         self.settings_page.ready_changed.connect(self._on_env_ready)
@@ -164,8 +172,6 @@ class MainWindow(QMainWindow):
         # 切换到对应页面时刷新数据
         if index == 1:   # 剧本生成
             self.script_panel._refresh_tasks()
-        elif index == 2: # 视频创作
-            self.video_panel._load_scripts()
         elif index == 5: # 结果查看
             self.results_panel._refresh_tasks()
 
