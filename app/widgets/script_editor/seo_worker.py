@@ -62,7 +62,7 @@ class SEOOptimizeWorker(QThread):
                 model=self.model,
                 messages=messages,
                 temperature=0.7,
-                max_tokens=4096,
+                max_tokens=16384,
                 stream=True,
             )
 
