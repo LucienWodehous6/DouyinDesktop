@@ -351,7 +351,7 @@ class ScriptPanel(QWidget):
         """通过 video_downloader 提取视频文案，返回文本"""
         spec = importlib.util.spec_from_file_location(
             "video_downloader",
-            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "core_modules", "video_downloader.py")
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "core_modules", "douyin_downloader.py")
         )
         if spec is None or spec.loader is None:
             raise RuntimeError("无法加载 video_downloader.py")
