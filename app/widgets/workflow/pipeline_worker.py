@@ -61,20 +61,68 @@ class PipelineWorker(QThread):
         self.log_signal.emit(name, f"{name} 执行完成")
 
     def _run_cdo(self, config: dict) -> str:
-        """CDO 数据采集"""
-        return os.path.join(self.output_dir, "cdoresult.json")
+        from app.widgets.workflow.agents.cdo_agent import CDOAgentWorker
+        result_file = os.path.join(self.output_dir, "cdoresult.json")
+        worker = CDOAgentWorker(
+            keyword=config.get("keyword", ""),
+            platform=config.get("platform", "抖音"),
+            count=config.get("count", 20),
+            output_file=result_file,
+        )
+        worker.finished_signal.connect(lambda: worker.deleteLater())
+        worker.start()
+        worker.wait()
+        return result_file
 
     def _run_cco(self, config: dict) -> str:
-        """CCO 内容创作"""
-        return os.path.join(self.output_dir, "ccoresult.md")
+        from app.widgets.workflow.agents.cco_agent import CCOAgentWorker
+        input_file = os.path.join(self.output_dir, "cdoresult.json")
+        result_file = os.path.join(self.output_dir, "ccoresult.md")
+        worker = CCOAgentWorker(
+            input_file=input_file,
+            output_file=result_file,
+            api_key=config.get("api_key", ""),
+            api_base=config.get("api_base", "https://api.deepseek.com/v1"),
+            model=config.get("model", "deepseek-chat"),
+            style=config.get("style", "neutral"),
+        )
+        worker.finished_signal.connect(lambda: worker.deleteLater())
+        worker.start()
+        worker.wait()
+        return result_file
 
     def _run_seo(self, config: dict) -> str:
-        """SEO 优化"""
-        return os.path.join(self.output_dir, "seoresult.md")
+        from app.widgets.workflow.agents.seo_agent import SEOAgentWorker
+        input_file = os.path.join(self.output_dir, "ccoresult.md")
+        result_file = os.path.join(self.output_dir, "seoresult.md")
+        worker = SEOAgentWorker(
+            input_file=input_file,
+            output_file=result_file,
+            api_key=config.get("api_key", ""),
+            api_base=config.get("api_base", "https://api.deepseek.com/v1"),
+            model=config.get("model", "deepseek-chat"),
+        )
+        worker.finished_signal.connect(lambda: worker.deleteLater())
+        worker.start()
+        worker.wait()
+        return result_file
 
     def _run_cmo(self, config: dict) -> str:
-        """CMO 发布分发"""
-        return os.path.join(self.output_dir, "cmoresult.json")
+        from app.widgets.workflow.agents.cmo_agent import CMOAgentWorker
+        input_file = os.path.join(self.output_dir, "seoresult.md")
+        result_file = os.path.join(self.output_dir, "cmoresult.json")
+        worker = CMOAgentWorker(
+            input_file=input_file,
+            output_file=result_file,
+            api_key=config.get("api_key", ""),
+            api_base=config.get("api_base", "https://api.deepseek.com/v1"),
+            model=config.get("model", "deepseek-chat"),
+            target_platform=config.get("target_platform", "抖音"),
+        )
+        worker.finished_signal.connect(lambda: worker.deleteLater())
+        worker.start()
+        worker.wait()
+        return result_file
 
     def _cleanup_output_files(self):
         """流程完成后自动清理所有输出文件"""
