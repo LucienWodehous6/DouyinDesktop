@@ -356,7 +356,6 @@ class MainWindow(QMainWindow):
             dm_message=params.get("dm_message"),
         )
         self.worker.log_signal.connect(self.progress_panel.log)
-        self.worker.progress_signal.connect(self.progress_panel.set_progress)
         self.worker.finished_signal.connect(self._on_finished)
         self.worker.error_signal.connect(self._on_error)
         self.worker.start()
