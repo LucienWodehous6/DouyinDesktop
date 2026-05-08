@@ -748,11 +748,10 @@ class SEOOptimizeWorker(QThread):
     result_signal = pyqtSignal(str)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, script_text: str, topic: str, api_key: str,
+    def __init__(self, script_text: str, api_key: str,
                  api_base: str, model: str):
         super().__init__()
         self.script_text = script_text
-        self.topic = topic
         self.api_key = api_key
         self.api_base = api_base
         self.model = model
