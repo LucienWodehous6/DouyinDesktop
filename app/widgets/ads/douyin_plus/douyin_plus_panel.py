@@ -2,7 +2,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QTableWidgetItem, QLabel, QHeaderView, QAbstractItemView,
-    QMessageBox, QInputDialog, QLineEdit, QComboBox, QDialog, QFormLayout,
+    QMessageBox, QDialog, QFormLayout, QLineEdit,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -12,7 +12,7 @@ class DouyinPlusWorker(QThread):
     """后台线程执行抖音 DO+ 操作"""
     log_signal = pyqtSignal(str, str)
     campaigns_loaded = pyqtSignal(list)
-    campaign_created = pyqtSignal(bool, str)
+    error_occurred = pyqtSignal(str)
 
     def __init__(self, cdp_url: str, parent=None):
         super().__init__(parent)
@@ -23,8 +23,11 @@ class DouyinPlusWorker(QThread):
         from app.widgets.ads.douyin_plus.browser_ops import DouyinPlusBrowserOps
         self._ops = DouyinPlusBrowserOps(self.cdp_url)
 
+        self.log_signal.emit(f"正在连接 CDP: {self.cdp_url}", "INFO")
+
         if not self._ops.connect():
-            self.log_signal.emit("连接浏览器失败", "ERROR")
+            self.log_signal.emit("连接浏览器失败，请确保 Chrome 已开启 CDP", "ERROR")
+            self.error_occurred.emit("连接失败")
             return
 
         self.log_signal.emit("已连接到抖音 DO+ 浏览器", "INFO")
@@ -32,11 +35,14 @@ class DouyinPlusWorker(QThread):
         # 导航到推广列表页面
         if not self._ops.navigate_to_promote_list():
             self.log_signal.emit("导航到推广列表页面失败", "ERROR")
+            self.error_occurred.emit("导航失败")
             return
 
         self.log_signal.emit("正在获取推广列表...", "INFO")
         campaigns = self._ops.get_campaign_list()
         self.campaigns_loaded.emit(campaigns)
+
+        self._ops.disconnect()
 
 
 class DouyinPlusPanel(QWidget):
@@ -56,17 +62,6 @@ class DouyinPlusPanel(QWidget):
         title = QLabel("抖音 DO+ — 内容加热推广")
         title.setFont(QFont("", 14, QFont.Weight.Bold))
         layout.addWidget(title)
-
-        # CDP URL 配置
-        cdp_layout = QHBoxLayout()
-        cdp_layout.addWidget(QLabel("CDP:"))
-        self.cdp_combo = QComboBox()
-        self.cdp_combo.setEditable(True)
-        default_cdp = self._settings.get("cdp_url", "http://127.0.0.1:9222")
-        self.cdp_combo.addItems([default_cdp])
-        self.cdp_combo.setCurrentText(default_cdp)
-        cdp_layout.addWidget(self.cdp_combo, 1)
-        layout.addLayout(cdp_layout)
 
         # 控制栏
         controls = QHBoxLayout()
@@ -98,21 +93,30 @@ class DouyinPlusPanel(QWidget):
         self._worker = None
 
     def _get_cdp_url(self) -> str:
-        return self.cdp_combo.currentText().strip() or "http://127.0.0.1:9222"
+        return self._settings.get("cdp_url", "http://127.0.0.1:9222")
 
     def _on_refresh(self):
         """刷新推广列表"""
         self.status_label.setText("正在刷新...")
         self.refresh_btn.setEnabled(False)
+        self.create_btn.setEnabled(False)
 
         cdp_url = self._get_cdp_url()
         self._worker = DouyinPlusWorker(cdp_url, self)
         self._worker.log_signal.connect(self._update_status)
         self._worker.campaigns_loaded.connect(self._display_campaigns)
-        self._worker.finished.connect(lambda: self.refresh_btn.setEnabled(True))
+        self._worker.error_occurred.connect(self._on_error)
+        self._worker.finished.connect(lambda: self._on_worker_finished())
         self._worker.start()
 
+    def _on_worker_finished(self):
+        self.refresh_btn.setEnabled(True)
+        self.create_btn.setEnabled(True)
+
     def _update_status(self, msg: str, level: str = "INFO"):
+        self.status_label.setText(msg)
+
+    def _on_error(self, msg: str):
         self.status_label.setText(msg)
 
     def _display_campaigns(self, campaigns: list):
@@ -158,19 +162,17 @@ class DouyinPlusPanel(QWidget):
         """创建新推广"""
         dialog = CreateCampaignDialog(self._get_cdp_url(), self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            pass
+            self._on_refresh()
 
     def _pause_campaign(self, campaign_id: str):
         """暂停推广"""
         self.status_label.setText(f"正在暂停推广 {campaign_id}...")
-        # TODO: 实现暂停逻辑
 
     def _delete_campaign(self, campaign_id: str):
         """删除推广"""
         reply = QMessageBox.question(self, "确认", f"确定删除推广 {campaign_id}？")
         if reply == QMessageBox.StandardButton.Yes:
             self.status_label.setText(f"正在删除推广 {campaign_id}...")
-            # TODO: 实现删除逻辑
 
     def load_campaigns(self):
         """加载推广列表"""
@@ -246,13 +248,16 @@ class CreateCampaignDialog(QDialog):
         from app.widgets.ads.douyin_plus.browser_ops import DouyinPlusBrowserOps
         ops = DouyinPlusBrowserOps(self.cdp_url)
 
-        if not ops.connect():
-            QMessageBox.warning(self, "错误", "连接浏览器失败，请确保 Chrome 已启动并开启 CDP")
-            return
-
-        self.ok_btn.setText("创建中...")
+        self.ok_btn.setText("连接中...")
         self.ok_btn.setEnabled(False)
 
+        if not ops.connect():
+            self.ok_btn.setText("创建")
+            self.ok_btn.setEnabled(True)
+            QMessageBox.warning(self, "错误", "连接浏览器失败，请确保 Chrome 已启动并开启 CDP 端口")
+            return
+
+        self.ok_btn.setText("创建推广...")
         ops.navigate_to_home()
         result = ops.create_content_heating(video_id, config)
         ops.disconnect()
