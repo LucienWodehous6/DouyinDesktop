@@ -31,12 +31,15 @@ class DouyinPlusBrowserOps:
             return False
 
     def disconnect(self):
-        """断开连接"""
+        """断开连接（不断开浏览器，只清理本地连接）"""
         try:
-            if self._browser:
-                self._browser.close()
+            if self._page:
+                self._page.close()
+                self._page = None
+            # 注意：不关闭 browser，只断开 CDP 连接
             if self._playwright:
                 self._playwright.stop()
+                self._playwright = None
         except Exception:
             pass
         finally:
