@@ -134,35 +134,79 @@ def wait_for_navigation(page, expected_url_contains: str, timeout: int = 5000):
         return False
 
 
-def scroll_and_load_all(page, check_text: str = "没有更多作品") -> int:
+def scroll_and_load_works(page, max_works: int = 10, max_scrolls: int = 20) -> int:
     """
-    滚动页面直到加载完成
+    滚动页面加载指定数量的作品
+
+    策略：
+    1. 每次滚动后统计当前可见的作品数量
+    2. 如果达到目标数量则停止
+    3. 如果滚动后作品数量没有增加（说明已加载完），则停止
+    4. 设置最大滚动次数防止无限循环
 
     Args:
         page: Playwright page 对象
-        check_text: 检查是否加载完成的文本
+        max_works: 最大收集作品数量
+        max_scrolls: 最大滚动次数
 
     Returns:
         滚动次数
     """
+    import re
+
+    def count_visible_works(page_text: str) -> int:
+        """统计当前可见的作品数量（通过时长格式 "00:XX" 或 "X张" 计数）"""
+        matches = re.findall(r'\d{2}:\d{2}|\d+张', page_text)
+        return len(matches)
+
+    def has_no_more(page_text: str) -> bool:
+        """检查是否显示'没有更多作品'"""
+        return "没有更多作品" in page_text
+
     scroll_count = 0
-    max_scrolls = 20
+    last_count = 0
+    no_new_works_rounds = 0  # 连续滚动但没有新增作品的次数
 
     while scroll_count < max_scrolls:
+        # 获取当前页面文本
+        page_text = page.inner_text("body")
+
+        # 检查是否显示"没有更多作品"
+        if has_no_more(page_text):
+            print("  [完成] 已加载所有可见作品")
+            return scroll_count
+
+        # 统计当前可见作品数
+        current_count = count_visible_works(page_text)
+        print(f"  滚动 #{scroll_count + 1}: 当前可见 {current_count} 个作品 (目标: {max_works})")
+
+        # 达到目标数量
+        if current_count >= max_works:
+            print(f"  [完成] 已收集到 {current_count} 个作品")
+            return scroll_count
+
+        # 检查是否有新增作品
+        if current_count > last_count:
+            no_new_works_rounds = 0
+        else:
+            no_new_works_rounds += 1
+            # 如果连续3次滚动都没有新增作品，说明已经加载完
+            if no_new_works_rounds >= 3:
+                print(f"  [完成] 连续 {no_new_works_rounds} 次滚动无新增作品，已加载 {current_count} 个")
+                return scroll_count
+
+        last_count = current_count
+
         # 随机滚动距离: 300-600px（模拟人类）
         scroll_distance = random.randint(300, 600)
-
         page.evaluate(f"window.scrollBy(0, {scroll_distance})")
 
         # 随机延迟 0.5-1.5 秒（模拟人类）
         time.sleep(random.uniform(0.5, 1.5))
 
-        # 检查是否加载完成
-        if check_text in page.inner_text("body"):
-            return scroll_count + 1
-
         scroll_count += 1
 
+    print(f"  [完成] 达到最大滚动次数 {max_scrolls}")
     return scroll_count
 
 
@@ -315,12 +359,13 @@ def print_works(works: list):
     print("\n" + "=" * 60)
 
 
-def get_works(cdp_url: str = "http://127.0.0.1:9222") -> list:
+def get_works(cdp_url: str = "http://127.0.0.1:9222", max_works: int = 10) -> list:
     """
     获取抖音创作者中心的作品列表
 
     Args:
         cdp_url: CDP 地址
+        max_works: 最大收集作品数量
 
     Returns:
         作品列表
@@ -363,9 +408,9 @@ def get_works(cdp_url: str = "http://127.0.0.1:9222") -> list:
 
         print(f"当前页面: {target_page.url}")
 
-        # 滚动加载完整列表
-        print("\n滚动加载完整作品列表...")
-        scroll_count = scroll_and_load_all(target_page)
+        # 滚动加载指定数量的作品
+        print(f"\n滚动加载前 {max_works} 个作品...")
+        scroll_count = scroll_and_load_works(target_page, max_works=max_works)
         print(f"滚动 {scroll_count} 次完成")
 
         # 解析作品列表
@@ -407,7 +452,15 @@ def main():
     subparsers = parser.add_subparsers(dest="action", help="操作命令")
 
     subparsers.add_parser("list", help="列出所有标签页")
-    subparsers.add_parser("works", help="获取作品列表")
+
+    # works 子命令
+    works_parser = subparsers.add_parser("works", help="获取作品列表")
+    works_parser.add_argument(
+        "--count",
+        type=int,
+        default=10,
+        help="收集作品数量 (默认: 10)"
+    )
 
     args = parser.parse_args()
 
@@ -418,7 +471,7 @@ def main():
     if args.action == "list":
         get_tabs(args.cdp)
     elif args.action == "works":
-        get_works(args.cdp)
+        get_works(args.cdp, max_works=args.count)
 
 
 if __name__ == "__main__":
