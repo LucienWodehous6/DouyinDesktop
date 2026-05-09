@@ -88,7 +88,6 @@ class MainWindow(QMainWindow):
         nav_items = [
             ("🔍", "搜索采集"),
             ("🎬", "剧本生成"),
-            ("🛠", "抖音工具"),
             ("📈", "视频分析"),
             ("📟", "运行日志"),
             ("📊", "结果查看"),
@@ -132,19 +131,12 @@ class MainWindow(QMainWindow):
         self.script_panel = ScriptPanel(self.task_store, self.settings)
         self.stack.addWidget(self.script_panel)
 
-        from app.widgets.dy_tools_panel import DyToolsPanel
-        self.dy_tools_panel = DyToolsPanel(self.task_store, self.settings)
-        self.stack.addWidget(self.dy_tools_panel)
-
         from app.widgets.video_analysis_panel import VideoAnalysisPanel
         self.video_analysis_panel = VideoAnalysisPanel(self.task_store, self.settings)
         self.stack.addWidget(self.video_analysis_panel)
 
         self.progress_panel = ProgressPanel()
         self.stack.addWidget(self.progress_panel)
-
-        # 等 progress_panel 创建后再连接信号
-        self.dy_tools_panel.log_signal.connect(self.progress_panel.log)
 
         self.results_panel = ResultsPanel(self.task_store)
         self.stack.addWidget(self.results_panel)
@@ -167,7 +159,7 @@ class MainWindow(QMainWindow):
         # 切换到对应页面时刷新数据
         if index == 1:   # 剧本生成
             self.script_panel._refresh_tasks()
-        elif index == 5: # 结果查看
+        elif index == 4: # 结果查看
             self.results_panel._refresh_tasks()
 
     def _on_env_ready(self, ready: bool):
