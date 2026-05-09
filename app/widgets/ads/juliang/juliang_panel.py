@@ -2,7 +2,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QTableWidgetItem, QLabel, QHeaderView, QAbstractItemView,
-    QMessageBox, QComboBox, QDialog, QFormLayout,
+    QMessageBox, QComboBox, QDialog, QFormLayout, QLineEdit,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
