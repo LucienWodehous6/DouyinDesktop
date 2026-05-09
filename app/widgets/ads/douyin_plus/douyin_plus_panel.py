@@ -1,8 +1,8 @@
 """抖音 DO+ 面板 UI"""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QTableWidget, QLabel, QHeaderView, QAbstractItemView,
-    QMessageBox, QInputDialog, QLineEdit, QComboBox,
+    QTableWidget, QTableWidgetItem, QLabel, QHeaderView, QAbstractItemView,
+    QMessageBox, QInputDialog, QLineEdit, QComboBox, QDialog, QFormLayout,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -38,11 +38,6 @@ class DouyinPlusWorker(QThread):
         campaigns = self._ops.get_campaign_list()
         self.campaigns_loaded.emit(campaigns)
 
-    def create_campaign(self, video_id: str, config: dict):
-        if self._ops:
-            result = self._ops.create_content_heating(video_id, config)
-            self.campaign_created.emit(result["success"], result.get("message", ""))
-
 
 class DouyinPlusPanel(QWidget):
     """抖音 DO+ 投放管理面板"""
@@ -67,11 +62,9 @@ class DouyinPlusPanel(QWidget):
         cdp_layout.addWidget(QLabel("CDP:"))
         self.cdp_combo = QComboBox()
         self.cdp_combo.setEditable(True)
-        self.cdp_combo.addItems([
-            self._settings.get("cdp_url", "http://127.0.0.1:9222"),
-            "http://127.0.0.1:9222",
-            "http://localhost:9222",
-        ])
+        default_cdp = self._settings.get("cdp_url", "http://127.0.0.1:9222")
+        self.cdp_combo.addItems([default_cdp])
+        self.cdp_combo.setCurrentText(default_cdp)
         cdp_layout.addWidget(self.cdp_combo, 1)
         layout.addLayout(cdp_layout)
 
@@ -113,7 +106,7 @@ class DouyinPlusPanel(QWidget):
         self.refresh_btn.setEnabled(False)
 
         cdp_url = self._get_cdp_url()
-        self._worker = DouyinPlusWorker(cdp_url)
+        self._worker = DouyinPlusWorker(cdp_url, self)
         self._worker.log_signal.connect(self._update_status)
         self._worker.campaigns_loaded.connect(self._display_campaigns)
         self._worker.finished.connect(lambda: self.refresh_btn.setEnabled(True))
@@ -164,7 +157,8 @@ class DouyinPlusPanel(QWidget):
     def _on_create(self):
         """创建新推广"""
         dialog = CreateCampaignDialog(self._get_cdp_url(), self)
-        dialog.exec()
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            pass
 
     def _pause_campaign(self, campaign_id: str):
         """暂停推广"""
@@ -183,7 +177,7 @@ class DouyinPlusPanel(QWidget):
         self._on_refresh()
 
 
-class CreateCampaignDialog(QInputDialog):
+class CreateCampaignDialog(QDialog):
     """创建推广对话框"""
 
     def __init__(self, cdp_url: str, parent=None):
@@ -193,27 +187,71 @@ class CreateCampaignDialog(QInputDialog):
 
     def _init_ui(self):
         self.setWindowTitle("创建抖音 DO+ 推广")
-        self.setLabelText("请输入视频 ID 和配置（JSON）:")
-        self.setTextValue('{"video_id": "123456789", "budget": "100", "duration": 7}')
-        self.setOkButtonText("创建")
+        self.setMinimumWidth(400)
 
-    def done(self, result):
-        if result:
-            config_text = self.textValue()
-            try:
-                import json
-                config = json.loads(config_text)
-                video_id = config.pop("video_id", "")
-                self._create_campaign(video_id, config)
-            except json.JSONDecodeError as e:
-                QMessageBox.warning(self, "错误", f"JSON 格式错误: {e}")
+        layout = QFormLayout(self)
+
+        # 视频 ID
+        self.video_id_input = QLineEdit()
+        self.video_id_input.setPlaceholderText("请输入视频 ID")
+        layout.addRow("视频 ID:", self.video_id_input)
+
+        # 日预算
+        self.budget_input = QLineEdit()
+        self.budget_input.setPlaceholderText("如：100")
+        self.budget_input.setText("100")
+        layout.addRow("日预算(元):", self.budget_input)
+
+        # 推广天数
+        self.duration_input = QLineEdit()
+        self.duration_input.setPlaceholderText("如：7")
+        self.duration_input.setText("7")
+        layout.addRow("推广天数:", self.duration_input)
+
+        # 按钮
+        btn_layout = QHBoxLayout()
+        self.ok_btn = QPushButton("创建")
+        self.cancel_btn = QPushButton("取消")
+        btn_layout.addWidget(self.ok_btn)
+        btn_layout.addWidget(self.cancel_btn)
+        layout.addRow("", btn_layout)
+
+        self.ok_btn.clicked.connect(self._on_ok)
+        self.cancel_btn.clicked.connect(self.reject)
+
+    def _on_ok(self):
+        video_id = self.video_id_input.text().strip()
+        budget = self.budget_input.text().strip()
+        duration = self.duration_input.text().strip()
+
+        if not video_id:
+            QMessageBox.warning(self, "错误", "请填写视频 ID")
+            return
+
+        try:
+            budget_val = float(budget) if budget else 100
+            duration_val = int(duration) if duration else 7
+        except ValueError:
+            QMessageBox.warning(self, "错误", "预算和天数必须是数字")
+            return
+
+        config = {
+            "budget": str(budget_val),
+            "duration": duration_val,
+        }
+
+        self._create_campaign(video_id, config)
 
     def _create_campaign(self, video_id: str, config: dict):
         from app.widgets.ads.douyin_plus.browser_ops import DouyinPlusBrowserOps
         ops = DouyinPlusBrowserOps(self.cdp_url)
+
         if not ops.connect():
-            QMessageBox.warning(self, "错误", "连接浏览器失败")
+            QMessageBox.warning(self, "错误", "连接浏览器失败，请确保 Chrome 已启动并开启 CDP")
             return
+
+        self.ok_btn.setText("创建中...")
+        self.ok_btn.setEnabled(False)
 
         ops.navigate_to_home()
         result = ops.create_content_heating(video_id, config)
@@ -221,5 +259,8 @@ class CreateCampaignDialog(QInputDialog):
 
         if result["success"]:
             QMessageBox.information(self, "成功", f"推广创建成功: {result.get('campaign_id', '')}")
+            self.accept()
         else:
+            self.ok_btn.setText("创建")
+            self.ok_btn.setEnabled(True)
             QMessageBox.warning(self, "失败", result.get("message", "创建失败"))

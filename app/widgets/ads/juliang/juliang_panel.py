@@ -1,12 +1,11 @@
 """巨量千川面板 UI"""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QTableWidget, QLabel, QHeaderView, QAbstractItemView,
-    QMessageBox, QInputDialog, QLineEdit, QComboBox,
+    QTableWidget, QTableWidgetItem, QLabel, QHeaderView, QAbstractItemView,
+    QMessageBox, QInputDialog, QLineEdit, QComboBox, QDialog, QFormLayout,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
-import threading
 
 
 class JuliangWorker(QThread):
@@ -39,11 +38,6 @@ class JuliangWorker(QThread):
         plans = self._ops.get_plan_list()
         self.plans_loaded.emit(plans)
 
-    def create_plan(self, config: dict):
-        if self._ops:
-            result = self._ops.create_plan(config)
-            self.plan_created.emit(result["success"], result.get("message", ""))
-
 
 class JuliangPanel(QWidget):
     """巨量千川投放管理面板"""
@@ -68,11 +62,9 @@ class JuliangPanel(QWidget):
         cdp_layout.addWidget(QLabel("CDP:"))
         self.cdp_combo = QComboBox()
         self.cdp_combo.setEditable(True)
-        self.cdp_combo.addItems([
-            self._settings.get("cdp_url", "http://127.0.0.1:9222"),
-            "http://127.0.0.1:9222",
-            "http://localhost:9222",
-        ])
+        default_cdp = self._settings.get("cdp_url", "http://127.0.0.1:9222")
+        self.cdp_combo.addItems([default_cdp])
+        self.cdp_combo.setCurrentText(default_cdp)
         cdp_layout.addWidget(self.cdp_combo, 1)
         layout.addLayout(cdp_layout)
 
@@ -117,7 +109,7 @@ class JuliangPanel(QWidget):
         self.refresh_btn.setEnabled(False)
 
         cdp_url = self._get_cdp_url()
-        self._worker = JuliangWorker(cdp_url)
+        self._worker = JuliangWorker(cdp_url, self)
         self._worker.log_signal.connect(self._update_status)
         self._worker.plans_loaded.connect(self._display_plans)
         self._worker.finished.connect(lambda: self.refresh_btn.setEnabled(True))
@@ -168,11 +160,11 @@ class JuliangPanel(QWidget):
     def _on_create(self):
         """创建新计划"""
         dialog = CreatePlanDialog(self._get_cdp_url(), self)
-        dialog.exec()
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            pass  # 创建成功则刷新
 
     def _on_monitor(self):
         """开始监控"""
-        from app.widgets.ads.juliang.monitor import JuliangMonitor
         self.status_label.setText("监控功能开发中")
         QMessageBox.information(self, "提示", "监控功能正在开发...")
 
@@ -193,7 +185,7 @@ class JuliangPanel(QWidget):
         self._on_refresh()
 
 
-class CreatePlanDialog(QInputDialog):
+class CreatePlanDialog(QDialog):
     """创建计划对话框"""
 
     def __init__(self, cdp_url: str, parent=None):
@@ -203,26 +195,80 @@ class CreatePlanDialog(QInputDialog):
 
     def _init_ui(self):
         self.setWindowTitle("创建巨量千川计划")
-        self.setLabelText("请输入计划配置（JSON）:")
-        self.setTextValue('{"behavior": "美妆", "interest": "护肤", "bid": "0.22", "budget": "100"}')
-        self.setOkButtonText("创建")
+        self.setMinimumWidth(400)
 
-    def done(self, result):
-        if result:
-            config_text = self.textValue()
-            try:
-                import json
-                config = json.loads(config_text)
-                self._create_plan(config)
-            except json.JSONDecodeError as e:
-                QMessageBox.warning(self, "错误", f"JSON 格式错误: {e}")
+        layout = QFormLayout(self)
+
+        # 行为类目
+        self.behavior_input = QLineEdit()
+        self.behavior_input.setPlaceholderText("如：美妆、服饰")
+        layout.addRow("行为类目:", self.behavior_input)
+
+        # 兴趣类目
+        self.interest_input = QLineEdit()
+        self.interest_input.setPlaceholderText("如：护肤、穿搭")
+        layout.addRow("兴趣类目:", self.interest_input)
+
+        # 出价
+        self.bid_input = QLineEdit()
+        self.bid_input.setPlaceholderText("如：0.22")
+        self.bid_input.setText("0.22")
+        layout.addRow("出价(元):", self.bid_input)
+
+        # 日预算
+        self.budget_input = QLineEdit()
+        self.budget_input.setPlaceholderText("如：100")
+        self.budget_input.setText("100")
+        layout.addRow("日预算(元):", self.budget_input)
+
+        # 按钮
+        btn_layout = QHBoxLayout()
+        self.ok_btn = QPushButton("创建")
+        self.cancel_btn = QPushButton("取消")
+        btn_layout.addWidget(self.ok_btn)
+        btn_layout.addWidget(self.cancel_btn)
+        layout.addRow("", btn_layout)
+
+        self.ok_btn.clicked.connect(self._on_ok)
+        self.cancel_btn.clicked.connect(self.reject)
+
+    def _on_ok(self):
+        behavior = self.behavior_input.text().strip()
+        interest = self.interest_input.text().strip()
+        bid = self.bid_input.text().strip()
+        budget = self.budget_input.text().strip()
+
+        if not behavior or not interest:
+            QMessageBox.warning(self, "错误", "请填写行为类目和兴趣类目")
+            return
+
+        try:
+            bid_val = float(bid) if bid else 0.22
+            budget_val = float(budget) if budget else 100
+        except ValueError:
+            QMessageBox.warning(self, "错误", "出价和预算必须是数字")
+            return
+
+        config = {
+            "behavior": behavior,
+            "interest": interest,
+            "bid": str(bid_val),
+            "budget": str(budget_val),
+            "name": f"直播加热_行为{behavior}_兴趣{interest}",
+        }
+
+        self._create_plan(config)
 
     def _create_plan(self, config: dict):
         from app.widgets.ads.juliang.browser_ops import JuliangBrowserOps
         ops = JuliangBrowserOps(self.cdp_url)
+
         if not ops.connect():
-            QMessageBox.warning(self, "错误", "连接浏览器失败")
+            QMessageBox.warning(self, "错误", "连接浏览器失败，请确保 Chrome 已启动并开启 CDP")
             return
+
+        self.ok_btn.setText("创建中...")
+        self.ok_btn.setEnabled(False)
 
         ops.navigate_to_live_heating()
         result = ops.create_plan(config)
@@ -230,5 +276,8 @@ class CreatePlanDialog(QInputDialog):
 
         if result["success"]:
             QMessageBox.information(self, "成功", f"计划创建成功: {result.get('plan_id', '')}")
+            self.accept()
         else:
+            self.ok_btn.setText("创建")
+            self.ok_btn.setEnabled(True)
             QMessageBox.warning(self, "失败", result.get("message", "创建失败"))
