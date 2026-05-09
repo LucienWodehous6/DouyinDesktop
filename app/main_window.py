@@ -18,7 +18,6 @@ from app.widgets.search_panel import SearchPanel
 from app.widgets.progress_panel import ProgressPanel
 from app.widgets.results_panel import ResultsPanel
 from app.widgets.script_panel import ScriptPanel
-from app.widgets.ads_panel import AdsPanel
 from app.widgets.settings_page import SettingsPage
 from app.worker import DataWorker
 from app.task_store import TaskStore
@@ -93,7 +92,6 @@ class MainWindow(QMainWindow):
             ("📈", "视频分析"),
             ("📟", "运行日志"),
             ("📊", "结果查看"),
-            ("📊", "投流管理"),
         ]
         for icon, text in nav_items:
             btn = SidebarButton(icon, text)
@@ -103,9 +101,9 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addStretch()
 
-        # 设置按钮（导航到设置页 index=8）
+        # 设置按钮（导航到设置页 index=6）
         settings_btn = SidebarButton("⚙", "设置")
-        settings_btn.clicked.connect(lambda: self._switch_page(7))
+        settings_btn.clicked.connect(lambda: self._switch_page(6))
         sidebar_layout.addWidget(settings_btn)
 
         # 底部版本
@@ -150,9 +148,6 @@ class MainWindow(QMainWindow):
 
         self.results_panel = ResultsPanel(self.task_store)
         self.stack.addWidget(self.results_panel)
-
-        self.ads_panel = AdsPanel(self.task_store, self.settings)
-        self.stack.addWidget(self.ads_panel)
 
         self.settings_page = SettingsPage(self.settings)
         self.settings_page.ready_changed.connect(self._on_env_ready)
@@ -222,7 +217,7 @@ class MainWindow(QMainWindow):
         # 设置
         settings_menu = menubar.addMenu("设置")
         act_settings = QAction("打开设置页面...", self)
-        act_settings.triggered.connect(lambda: self._switch_page(7))
+        act_settings.triggered.connect(lambda: self._switch_page(6))
         settings_menu.addAction(act_settings)
 
         # 关于
