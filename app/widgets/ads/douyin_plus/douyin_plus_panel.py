@@ -2,6 +2,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QLabel, QHeaderView, QAbstractItemView,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -34,6 +35,10 @@ class DouyinPlusPanel(QWidget):
         controls.addStretch()
         layout.addLayout(controls)
 
+        # 连接按钮信号
+        self.refresh_btn.clicked.connect(self._on_refresh)
+        self.create_btn.clicked.connect(self._on_create)
+
         # 推广列表
         self.campaign_table = QTableWidget()
         self.campaign_table.setColumnCount(6)
@@ -48,6 +53,15 @@ class DouyinPlusPanel(QWidget):
         self.status_label = QLabel("未连接")
         layout.addWidget(self.status_label)
 
+    def _on_refresh(self):
+        """刷新推广列表"""
+        self.status_label.setText("正在刷新...")
+        QMessageBox.information(self, "提示", "刷新功能开发中")
+
+    def _on_create(self):
+        """创建新推广"""
+        QMessageBox.information(self, "提示", "创建推广功能开发中")
+
     def load_campaigns(self):
         """加载推广列表"""
-        pass  # 后续完善
+        pass
