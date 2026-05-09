@@ -22,24 +22,33 @@ class JuliangBrowserOps:
         """连接到浏览器"""
         try:
             from playwright.sync_api import sync_playwright
+            print(f"[JuliangBrowserOps] 正在连接到 CDP: {self.cdp_url}")
             self._playwright = sync_playwright().start()
             self._browser = self._playwright.chromium.connect_over_cdp(self.cdp_url)
-            ctx = self._browser.contexts[0] if self._browser.contexts else self._browser.new_context()
-            self._page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            print(f"[JuliangBrowserOps] 浏览器已连接，目标: {self._browser}")
+
+            # 创建新页面用于操作
+            context = self._browser.contexts[0] if self._browser.contexts else self._browser.new_context()
+            self._page = context.new_page()
+            print(f"[JuliangBrowserOps] 新页面已创建: {self._page}")
             return True
         except Exception as e:
             print(f"[JuliangBrowserOps] 连接失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def disconnect(self):
         """断开连接"""
         try:
+            if self._page:
+                self._page.close()
             if self._browser:
                 self._browser.close()
             if self._playwright:
                 self._playwright.stop()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[JuliangBrowserOps] 断开连接时出错: {e}")
         finally:
             self._page = None
             self._browser = None
@@ -52,10 +61,13 @@ class JuliangBrowserOps:
     def navigate_to_home(self) -> bool:
         """导航到巨量千川首页"""
         if not self._page:
+            print("[JuliangBrowserOps] 未连接页面")
             return False
         try:
+            print(f"[JuliangBrowserOps] 导航到: {self.QC_HOME_URL}")
             self._page.goto(self.QC_HOME_URL, wait_until="domcontentloaded", timeout=30000)
             time.sleep(2)
+            print(f"[JuliangBrowserOps] 当前URL: {self._page.url}")
             return True
         except Exception as e:
             print(f"[JuliangBrowserOps] 导航失败: {e}")
@@ -64,10 +76,13 @@ class JuliangBrowserOps:
     def navigate_to_live_heating(self) -> bool:
         """导航到直播加热页面"""
         if not self._page:
+            print("[JuliangBrowserOps] 未连接页面")
             return False
         try:
+            print(f"[JuliangBrowserOps] 导航到: {self.QC_LIVE_HEATING_URL}")
             self._page.goto(self.QC_LIVE_HEATING_URL, wait_until="domcontentloaded", timeout=30000)
             time.sleep(2)
+            print(f"[JuliangBrowserOps] 当前URL: {self._page.url}")
             return True
         except Exception as e:
             print(f"[JuliangBrowserOps] 导航到直播加热失败: {e}")
@@ -96,12 +111,15 @@ class JuliangBrowserOps:
     def get_plan_list(self) -> list:
         """获取计划列表"""
         if not self._page:
+            print("[JuliangBrowserOps] get_plan_list: 未连接页面")
             return []
 
         try:
+            print("[JuliangBrowserOps] 正在获取计划列表...")
             time.sleep(2)
             plans = []
             rows = self._page.query_selector_all("[role='row'], tr")
+            print(f"[JuliangBrowserOps] 找到 {len(rows)} 行")
             for row in rows:
                 row_text = row.inner_text()
                 if "直播加热_行为" in row_text:
@@ -114,10 +132,13 @@ class JuliangBrowserOps:
                     if id_match:
                         plan["id"] = id_match.group(1)
                     plans.append(plan)
+                    print(f"[JuliangBrowserOps] 发现计划: {plan}")
 
             return plans
         except Exception as e:
             print(f"[JuliangBrowserOps] 获取计划列表失败: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
     def _extract_plan_name(self, text: str) -> str:
@@ -141,28 +162,19 @@ class JuliangBrowserOps:
         return match.group(1) if match else ""
 
     def create_plan(self, plan_config: dict) -> dict:
-        """创建投放计划
-
-        Args:
-            plan_config: 计划配置，包含:
-                - behavior: 行为类目词
-                - interest: 兴趣类目词
-                - bid: 出价
-                - budget: 日预算
-                - target_group: 目标广告组
-
-        Returns:
-            dict: 包含 success, plan_id, message
-        """
+        """创建投放计划"""
         if not self._page:
             return {"success": False, "message": "未连接浏览器"}
 
         try:
+            print(f"[JuliangBrowserOps] 开始创建计划: {plan_config}")
             risk = self._check_risk()
             if risk:
+                print(f"[JuliangBrowserOps] 页面存在风险: {risk}")
                 return {"success": False, "message": f"页面存在风险: {risk}"}
 
             create_url = f"{self.QC_HOME_URL}brand_bid/creation/feed-live-heating"
+            print(f"[JuliangBrowserOps] 导航到创建页: {create_url}")
             self._page.goto(create_url, wait_until="domcontentloaded", timeout=30000)
             time.sleep(3)
 
@@ -186,6 +198,9 @@ class JuliangBrowserOps:
             }
 
         except Exception as e:
+            print(f"[JuliangBrowserOps] 创建失败: {e}")
+            import traceback
+            traceback.print_exc()
             return {"success": False, "message": f"创建失败: {e}"}
 
     def _check_risk(self) -> list:
@@ -200,21 +215,29 @@ class JuliangBrowserOps:
 
     def _fill_plan_form(self, config: dict):
         """填写计划表单"""
+        print("[JuliangBrowserOps] 填写表单...")
         bid_input = self._page.query_selector('input[placeholder="请输入价格"]')
         if bid_input:
+            print(f"[JuliangBrowserOps] 找到出价输入框，设置值: {config.get('bid', '0.22')}")
             self._set_input_value(bid_input, str(config.get("bid", "0.22")))
+        else:
+            print("[JuliangBrowserOps] 未找到出价输入框")
 
         time.sleep(0.5)
 
         name_input = self._page.query_selector('input[placeholder="请输入计划名称，1-50个字符"]')
         if name_input:
             plan_name = config.get("name", f"直播加热_行为{config.get('behavior')}_兴趣{config.get('interest')}")
+            print(f"[JuliangBrowserOps] 找到名称输入框，设置值: {plan_name}")
             self._set_input_value(name_input, plan_name)
+        else:
+            print("[JuliangBrowserOps] 未找到名称输入框")
 
         time.sleep(0.5)
 
         group_input = self._page.query_selector('input[placeholder="请选择广告组"]')
         if group_input:
+            print("[JuliangBrowserOps] 找到广告组输入框，点击...")
             group_input.click()
             time.sleep(0.5)
             target_group = config.get("target_group", "")
@@ -224,14 +247,17 @@ class JuliangBrowserOps:
 
     def _set_input_value(self, element, value: str):
         """设置输入框的值（触发 Vue 响应式）"""
-        self._page.evaluate("""
-            (el, val) => {
-                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                nativeInputValueSetter.call(el, val);
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        """, element, value)
+        try:
+            self._page.evaluate("""
+                (el, val) => {
+                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                    nativeInputValueSetter.call(el, val);
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            """, element, value)
+        except Exception as e:
+            print(f"[JuliangBrowserOps] 设置输入框值失败: {e}")
 
     def _validate_plan(self, config: dict) -> bool:
         """验证计划表单"""
@@ -263,8 +289,10 @@ class JuliangBrowserOps:
             buttons = self._page.query_selector_all("button")
             for btn in buttons:
                 if "发布计划" in btn.inner_text():
+                    print("[JuliangBrowserOps] 点击发布计划按钮")
                     btn.click()
                     return True
+            print("[JuliangBrowserOps] 未找到发布计划按钮")
             return False
         except Exception as e:
             print(f"[JuliangBrowserOps] 点击发布失败: {e}")
