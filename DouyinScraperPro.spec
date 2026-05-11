@@ -10,6 +10,7 @@ if not (PROJECT_DIR / "main.py").exists():
 
 datas = [
     (str(PROJECT_DIR / "models"), "models"),
+    (str(PROJECT_DIR / "core_modules"), "core_modules"),
 ]
 for py_file in (PROJECT_DIR / "app").rglob("*.py"):
     rel = py_file.relative_to(PROJECT_DIR)
@@ -46,8 +47,8 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="DouyinScraperPro",
-    console=True,
+    name="DouyinScraperPro.exe" if sys.platform == "win32" else "DouyinScraperPro",
+    console=False,
     strip=False,
     upx=True,
     target_arch=None,
