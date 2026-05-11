@@ -100,9 +100,9 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addStretch()
 
-        # 设置按钮（导航到设置页 index=6）
+        # 设置按钮（导航到设置页 index=5）
         settings_btn = SidebarButton("⚙", "设置")
-        settings_btn.clicked.connect(lambda: self._switch_page(6))
+        settings_btn.clicked.connect(lambda: self._switch_page(5))
         sidebar_layout.addWidget(settings_btn)
 
         # 底部版本
@@ -209,7 +209,7 @@ class MainWindow(QMainWindow):
         # 设置
         settings_menu = menubar.addMenu("设置")
         act_settings = QAction("打开设置页面...", self)
-        act_settings.triggered.connect(lambda: self._switch_page(6))
+        act_settings.triggered.connect(lambda: self._switch_page(5))
         settings_menu.addAction(act_settings)
 
         # 关于
@@ -293,7 +293,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "打开结果文件", str(APP_DIR), "JSON (*.json)")
         if path:
             self.results_panel.load_file(path)
-            self._switch_page(5)    # 跳转到结果查看
+            self._switch_page(4)    # 跳转到结果查看
 
     def _export_results(self):
         if self.results_panel.is_empty():
@@ -316,7 +316,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "提示", "采集任务正在进行中。")
             return
 
-        self._switch_page(4)    # 跳转到运行日志
+        self._switch_page(3)    # 跳转到运行日志
         self.progress_panel.clear()
         self.status_label.setText("● 运行中")
         self.status_label.setStyleSheet(f"color: {NEON_GREEN};")
